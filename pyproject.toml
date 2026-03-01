@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a2a-settlement-mcp"
+version = "0.1.0"
+description = "MCP server that exposes A2A Settlement Exchange operations as discoverable tools"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]",
+    "a2a-settlement @ git+https://github.com/a2a-settlement/a2a-settlement.git#subdirectory=sdk",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+a2a-settlement-mcp = "a2a_settlement_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]

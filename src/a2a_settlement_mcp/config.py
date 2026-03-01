@@ -1,0 +1,28 @@
+"""Environment-driven configuration for the A2A Settlement MCP server."""
+
+from __future__ import annotations
+
+import os
+
+
+def get_exchange_url() -> str:
+    """Exchange API base URL (e.g. http://localhost:3000). SDK appends /v1/ paths."""
+    return os.environ.get("A2A_EXCHANGE_URL", "http://localhost:3000").rstrip("/")
+
+
+def get_api_key() -> str:
+    """API key for authenticated exchange operations. Empty if unset."""
+    return os.environ.get("A2A_API_KEY", "").strip()
+
+
+def get_transport() -> str:
+    """MCP transport: 'stdio' or 'sse'."""
+    return os.environ.get("A2A_MCP_TRANSPORT", "stdio").lower()
+
+
+def get_port() -> int:
+    """Port for SSE transport."""
+    try:
+        return int(os.environ.get("A2A_MCP_PORT", "3200"))
+    except ValueError:
+        return 3200

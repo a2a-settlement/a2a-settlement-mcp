@@ -1,0 +1,5 @@
+# Install via pip after activating the conda env.
+# For full install with a2a-settlement SDK, use: pip install -e .
+mcp
+a2a-settlement @ git+https://github.com/a2a-settlement/a2a-settlement.git#subdirectory=sdk
+
