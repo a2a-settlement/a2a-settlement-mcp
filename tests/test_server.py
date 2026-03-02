@@ -11,6 +11,7 @@ from a2a_settlement_mcp.server import (
     settlement_check_reputation,
     settlement_create_escrow,
     settlement_file_dispute,
+    settlement_force_refund,
     settlement_fund_agent,
     settlement_get_escrow,
     settlement_get_history,
@@ -18,6 +19,9 @@ from a2a_settlement_mcp.server import (
     settlement_refund_escrow,
     settlement_register_agent,
     settlement_release_escrow,
+    settlement_resolve_dispute,
+    settlement_suspend_agent,
+    settlement_unsuspend_agent,
 )
 
 
@@ -217,8 +221,8 @@ def test_settlement_list_agents_exchange_error() -> None:
         assert "error" in data
 
 
-def test_list_tools_returns_all_eleven() -> None:
-    """Server lists all 11 tools with correct names."""
+def test_list_tools_returns_all() -> None:
+    """Server lists all 15 tools with correct names."""
     tools = mcp._tool_manager._tools
     tool_names = [t.name for t in tools.values()]
     expected = [
@@ -233,7 +237,11 @@ def test_list_tools_returns_all_eleven() -> None:
         "settlement_file_dispute",
         "settlement_check_reputation",
         "settlement_get_history",
+        "settlement_suspend_agent",
+        "settlement_unsuspend_agent",
+        "settlement_force_refund",
+        "settlement_resolve_dispute",
     ]
     for name in expected:
         assert name in tool_names, f"Missing tool: {name}"
-    assert len(tool_names) == 11
+    assert len(tool_names) == 15

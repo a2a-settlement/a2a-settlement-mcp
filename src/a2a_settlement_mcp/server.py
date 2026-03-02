@@ -8,7 +8,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 from .client import get_exchange_client
-from .config import get_api_key, get_exchange_url, get_port
+from .config import get_api_key, get_dashboard_api_key, get_exchange_url, get_port
 
 mcp = FastMCP("a2a-settlement", json_response=True, port=get_port())
 
@@ -383,7 +383,7 @@ def settlement_suspend_agent(agent_id: str) -> str:
         client = get_exchange_client()
         url = f"{get_exchange_url()}/api/v1/dashboard/agents/{agent_id}/suspend"
         import httpx as _httpx
-        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_api_key()}"}, timeout=10.0)
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_dashboard_api_key()}"}, timeout=10.0)
         resp.raise_for_status()
         return _json_result(resp.json())
     except Exception as e:
@@ -402,7 +402,7 @@ def settlement_unsuspend_agent(agent_id: str) -> str:
     try:
         url = f"{get_exchange_url()}/api/v1/dashboard/agents/{agent_id}/unsuspend"
         import httpx as _httpx
-        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_api_key()}"}, timeout=10.0)
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_dashboard_api_key()}"}, timeout=10.0)
         resp.raise_for_status()
         return _json_result(resp.json())
     except Exception as e:
@@ -422,7 +422,7 @@ def settlement_force_refund(escrow_id: str) -> str:
     try:
         url = f"{get_exchange_url()}/api/v1/dashboard/escrows/{escrow_id}/force-refund"
         import httpx as _httpx
-        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_api_key()}"}, timeout=10.0)
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_dashboard_api_key()}"}, timeout=10.0)
         resp.raise_for_status()
         return _json_result(resp.json())
     except Exception as e:

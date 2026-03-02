@@ -15,6 +15,15 @@ def get_api_key() -> str:
     return os.environ.get("A2A_API_KEY", "").strip()
 
 
+def get_dashboard_api_key() -> str:
+    """Dashboard API key for admin operations (suspend, force-refund, etc.).
+
+    Falls back to A2A_API_KEY if not set separately.
+    """
+    key = os.environ.get("A2A_DASHBOARD_API_KEY", "").strip()
+    return key or get_api_key()
+
+
 def get_transport() -> str:
     """MCP transport: 'stdio' or 'sse'."""
     return os.environ.get("A2A_MCP_TRANSPORT", "stdio").lower()
