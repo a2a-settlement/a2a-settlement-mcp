@@ -366,6 +366,97 @@ def settlement_check_reputation(agent_id: str) -> str:
 # --- Transaction History ---
 
 
+# --- Admin / Dashboard Operations ---
+
+
+@mcp.tool()
+def settlement_suspend_agent(agent_id: str) -> str:
+    """Suspend an agent on the settlement exchange (operator action).
+
+    Prevents the agent from creating new escrows or participating in transactions.
+    Requires operator-level API key.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        client = get_exchange_client()
+        url = f"{get_exchange_url()}/api/v1/dashboard/agents/{agent_id}/suspend"
+        import httpx as _httpx
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_api_key()}"}, timeout=10.0)
+        resp.raise_for_status()
+        return _json_result(resp.json())
+    except Exception as e:
+        return _error_result(f"Failed to suspend agent: {e}")
+
+
+@mcp.tool()
+def settlement_unsuspend_agent(agent_id: str) -> str:
+    """Unsuspend a previously suspended agent (operator action).
+
+    Restores the agent's ability to transact on the exchange.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        url = f"{get_exchange_url()}/api/v1/dashboard/agents/{agent_id}/unsuspend"
+        import httpx as _httpx
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_api_key()}"}, timeout=10.0)
+        resp.raise_for_status()
+        return _json_result(resp.json())
+    except Exception as e:
+        return _error_result(f"Failed to unsuspend agent: {e}")
+
+
+@mcp.tool()
+def settlement_force_refund(escrow_id: str) -> str:
+    """Force-refund an escrow as operator regardless of requester identity.
+
+    Use for dispute resolution or emergency recovery. Refunds the full amount
+    (including fees) back to the requester.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        url = f"{get_exchange_url()}/api/v1/dashboard/escrows/{escrow_id}/force-refund"
+        import httpx as _httpx
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_api_key()}"}, timeout=10.0)
+        resp.raise_for_status()
+        return _json_result(resp.json())
+    except Exception as e:
+        return _error_result(f"Failed to force refund: {e}")
+
+
+@mcp.tool()
+def settlement_resolve_dispute(escrow_id: str, resolution: str) -> str:
+    """Resolve a disputed escrow as operator.
+
+    Args:
+        escrow_id: The disputed escrow to resolve.
+        resolution: Either "release" (pay provider) or "refund" (return to requester).
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    if resolution not in ("release", "refund"):
+        return _error_result("resolution must be 'release' or 'refund'")
+    try:
+        client = get_exchange_client()
+        result = client.resolve_escrow(escrow_id=escrow_id, resolution=resolution)
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            body = e.response.json()
+            msg = body.get("error", {}).get("message", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(msg)
+    except httpx.RequestError as e:
+        return _error_result(f"Exchange connection failed: {e}")
+
+
 @mcp.tool()
 def settlement_get_history(agent_id: str, limit: int = 50, offset: int = 0) -> str:
     """Get transaction history for an agent.
