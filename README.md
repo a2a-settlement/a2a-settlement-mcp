@@ -133,7 +133,7 @@ See [examples/programmatic.py](examples/programmatic.py) for a full example.
 
 | Variable | Default | Description |
 |---------|---------|-------------|
-| `A2A_EXCHANGE_URL` | `http://localhost:3000` | Exchange API base URL |
+| `A2A_EXCHANGE_URL` | `http://localhost:3000` | Exchange API base URL (no `/v1`) |
 | `A2A_API_KEY` | (empty) | API key for authenticated operations |
 | `A2A_MCP_TRANSPORT` | `stdio` | `stdio` or `sse` |
 | `A2A_MCP_PORT` | `3200` | Port for SSE transport |
@@ -170,7 +170,16 @@ pytest tests/ -v
 
 ## Related Projects
 
-- [a2a-settlement](https://github.com/a2a-settlement/a2a-settlement) — A2A Settlement Extension (exchange + SDK)
+| Project | Description |
+|---------|-------------|
+| [a2a-settlement](https://github.com/a2a-settlement/a2a-settlement) | Core exchange + SDK |
+| [langgraph-a2a-settlement](https://github.com/a2a-settlement/langgraph-a2a-settlement) | Native LangGraph graph nodes — use for LangGraph workflows |
+| [crewai-a2a-settlement](https://github.com/a2a-settlement/crewai-a2a-settlement) | Native CrewAI wrappers |
+| [litellm-a2a-settlement](https://github.com/a2a-settlement/litellm-a2a-settlement) | LiteLLM callback hooks |
+| [adk-a2a-settlement](https://github.com/a2a-settlement/adk-a2a-settlement) | Google ADK integration |
+
+**When to use MCP vs framework integrations:** MCP works with any MCP client (Claude Desktop, Cursor, custom). For LangGraph, CrewAI, LiteLLM, or ADK, the framework-specific packages offer native patterns (graph nodes, wrappers, callbacks). Use MCP when your agent runtime is framework-agnostic or MCP-only.
+
 - [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) — Official MCP implementation
 - [Model Context Protocol](https://modelcontextprotocol.io/) — Protocol specification
 
