@@ -8,7 +8,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 from .client import get_exchange_client
-from .config import get_api_key, get_dashboard_api_key, get_exchange_url, get_port
+from .config import get_api_key, get_dashboard_api_key, get_exchange_url, get_port, get_shim_url, get_shim_api_key
 
 mcp = FastMCP("a2a-settlement", json_response=True, port=get_port())
 
@@ -489,3 +489,204 @@ def settlement_get_history(agent_id: str, limit: int = 50, offset: int = 0) -> s
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
         )
+
+
+# --- Economic Air Gap: Shim Proxy & Secret Management ---
+
+
+def _require_shim() -> str | None:
+    """Return error message if shim URL is not configured."""
+    if not get_shim_url():
+        return (
+            "Shim is not configured. Set A2A_SHIM_URL to the Security Shim base URL "
+            "(e.g., http://localhost:3300)."
+        )
+    return None
+
+
+def _shim_request(method: str, path: str, body: dict | None = None) -> dict:
+    """Make a request to the Security Shim."""
+    url = f"{get_shim_url()}{path}"
+    headers = {}
+    api_key = get_shim_api_key()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    resp = httpx.request(method, url, json=body, headers=headers, timeout=30.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
+def settlement_proxy_request(
+    escrow_id: str,
+    tool_id: str | None = None,
+    destination_url: str | None = None,
+    method: str = "POST",
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+    secret_id: str | None = None,
+) -> str:
+    """Route a tool call through the Security Shim (Economic Air Gap).
+
+    Sends the request through the shim proxy which checks escrow balance,
+    resolves credentials, and forwards to the destination. The agent never
+    sees the real credential.
+
+    Use tool_id for full air gap (shim resolves destination and secret).
+    Use destination_url + secret_id for direct mode.
+    """
+    err = _require_shim()
+    if err:
+        return _error_result(err)
+    try:
+        payload: dict = {"escrow_id": escrow_id, "method": method}
+        if tool_id:
+            payload["tool_id"] = tool_id
+        if destination_url:
+            payload["destination_url"] = destination_url
+        if headers:
+            payload["headers"] = headers
+        if body:
+            payload["body"] = body
+        if secret_id:
+            payload["secret_id"] = secret_id
+        result = _shim_request("POST", "/shim/proxy", payload)
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("error", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Shim proxy request failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(
+            f"Shim connection failed: {get_shim_url()} is not responding. "
+            "Ensure the Security Shim is running."
+        )
+
+
+@mcp.tool()
+def settlement_register_tool(
+    tool_id: str,
+    destination_url: str,
+    method: str = "POST",
+    secret_id: str | None = None,
+    inject_as: str = "bearer",
+    inject_key: str = "Authorization",
+    cost_override: float | None = None,
+    description: str = "",
+) -> str:
+    """Register a tool mapping on the Security Shim for full air-gap mode.
+
+    After registration, agents can call the tool by tool_id without knowing
+    the destination URL or secret.
+    """
+    err = _require_shim()
+    if err:
+        return _error_result(err)
+    try:
+        payload = {
+            "tool_id": tool_id,
+            "destination_url": destination_url,
+            "method": method,
+            "inject_as": inject_as,
+            "inject_key": inject_key,
+            "description": description,
+        }
+        if secret_id:
+            payload["secret_id"] = secret_id
+        if cost_override is not None:
+            payload["cost_override"] = cost_override
+        result = _shim_request("POST", "/shim/tools", payload)
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("error", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Failed to register tool: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Shim connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_register_secret(
+    owner_id: str,
+    value: str,
+    label: str = "",
+    agent_ids: list[str] | None = None,
+) -> str:
+    """Register a secret (API key, PAT, token) in the vault.
+
+    The returned secret_id is an opaque placeholder that agents use
+    instead of the real credential. The real value is encrypted at rest
+    and only resolved by the Security Shim at request time.
+
+    Requires the shim to be running (vault is co-located or accessible).
+    """
+    err = _require_shim()
+    if err:
+        return _error_result(err)
+    try:
+        payload: dict = {
+            "owner_id": owner_id,
+            "value": value,
+            "label": label,
+        }
+        if agent_ids:
+            payload["agent_ids"] = agent_ids
+        result = _shim_request("POST", "/shim/secrets", payload)
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("error", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Failed to register secret: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Shim connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_shim_escrow_status(escrow_id: str) -> str:
+    """Check escrow status and remaining balance in the Security Shim.
+
+    Returns the local shim view of the escrow (remaining credits after
+    deductions for proxied calls).
+    """
+    err = _require_shim()
+    if err:
+        return _error_result(err)
+    try:
+        result = _shim_request("GET", f"/shim/escrows/{escrow_id}")
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Shim escrow check failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Shim connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_shim_audit(limit: int = 50) -> str:
+    """Retrieve recent audit entries from the Security Shim.
+
+    Shows proxied requests, costs, and any blocked requests (402s).
+    """
+    err = _require_shim()
+    if err:
+        return _error_result(err)
+    try:
+        result = _shim_request("GET", f"/shim/audit?limit={limit}")
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("error", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Shim audit request failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Shim connection failed: {e}")

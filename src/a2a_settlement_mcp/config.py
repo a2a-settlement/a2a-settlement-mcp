@@ -35,3 +35,14 @@ def get_port() -> int:
         return int(os.environ.get("A2A_MCP_PORT", "3200"))
     except ValueError:
         return 3200
+
+
+def get_shim_url() -> str:
+    """Security Shim base URL. Empty if shim is not deployed."""
+    return os.environ.get("A2A_SHIM_URL", "").rstrip("/")
+
+
+def get_shim_api_key() -> str:
+    """API key for shim operations. Falls back to A2A_API_KEY."""
+    key = os.environ.get("A2A_SHIM_API_KEY", "").strip()
+    return key or get_api_key()
