@@ -187,11 +187,17 @@ def settlement_create_escrow(
     task_id: str | None = None,
     task_type: str | None = None,
     ttl_minutes: int | None = None,
+    required_attestation_level: str | None = None,
 ) -> str:
     """Create an escrow hold between two agents.
 
     Locks the specified amount from the requester's balance until the escrow is
     released or refunded. The requester is the configured account (A2A_API_KEY).
+
+    Args:
+        required_attestation_level: Optional provenance attestation tier the
+            provider must meet when delivering: "self_declared", "signed",
+            or "verifiable".
     """
     err = _require_auth()
     if err:
@@ -209,7 +215,74 @@ def settlement_create_escrow(
             payload["task_type"] = task_type
         if ttl_minutes is not None:
             payload["ttl_minutes"] = ttl_minutes
+        if required_attestation_level is not None:
+            payload["required_attestation_level"] = required_attestation_level
         result = client.create_escrow(**payload)
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            body = e.response.json()
+            msg = body.get("error", {}).get("message", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(msg)
+    except httpx.RequestError as e:
+        return _error_result(
+            f"Exchange connection failed: {get_exchange_url()} is not responding. "
+            "Ensure the exchange is running."
+        )
+
+
+@mcp.tool()
+def settlement_deliver(
+    escrow_id: str,
+    content: str,
+    source_type: str | None = None,
+    source_uris: list[str] | None = None,
+    attestation_level: str | None = None,
+    signature: str | None = None,
+) -> str:
+    """Submit a deliverable (with optional provenance) against a held escrow.
+
+    The provider calls this after completing work to record the deliverable
+    on the exchange. Provenance fields are optional; when provided, the AI
+    Mediator will verify them during dispute resolution.
+
+    Args:
+        escrow_id: The escrow to deliver against.
+        content: The deliverable content (text, JSON, etc.).
+        source_type: How the data was obtained: "api", "database", "web",
+            "generated", or "hybrid".
+        source_uris: URIs the agent claims it accessed to produce the content.
+        attestation_level: Trust tier: "self_declared", "signed", or
+            "verifiable".
+        signature: For signed tier — request ID or API-provided proof.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        client = get_exchange_client()
+        provenance = None
+        if source_type or attestation_level:
+            from datetime import datetime, timezone
+
+            source_refs = [
+                {"uri": uri, "timestamp": datetime.now(timezone.utc).isoformat()}
+                for uri in (source_uris or [])
+            ]
+            provenance = {
+                "source_type": source_type or "generated",
+                "source_refs": source_refs,
+                "attestation_level": attestation_level or "self_declared",
+            }
+            if signature:
+                provenance["signature"] = signature
+        result = client.deliver(
+            escrow_id=escrow_id,
+            content=content,
+            provenance=provenance,
+        )
         return _json_result(result)
     except httpx.HTTPStatusError as e:
         try:
@@ -430,12 +503,21 @@ def settlement_force_refund(escrow_id: str) -> str:
 
 
 @mcp.tool()
-def settlement_resolve_dispute(escrow_id: str, resolution: str) -> str:
+def settlement_resolve_dispute(
+    escrow_id: str,
+    resolution: str,
+    provenance_verified: bool | None = None,
+    provenance_confidence: float | None = None,
+    provenance_flags: list[str] | None = None,
+) -> str:
     """Resolve a disputed escrow as operator.
 
     Args:
         escrow_id: The disputed escrow to resolve.
         resolution: Either "release" (pay provider) or "refund" (return to requester).
+        provenance_verified: Whether provenance verification passed.
+        provenance_confidence: Confidence score (0.0-1.0) from verification.
+        provenance_flags: Specific issues found during verification.
     """
     err = _require_auth()
     if err:
@@ -444,7 +526,18 @@ def settlement_resolve_dispute(escrow_id: str, resolution: str) -> str:
         return _error_result("resolution must be 'release' or 'refund'")
     try:
         client = get_exchange_client()
-        result = client.resolve_escrow(escrow_id=escrow_id, resolution=resolution)
+        provenance_result = None
+        if provenance_verified is not None:
+            provenance_result = {
+                "verified": provenance_verified,
+                "confidence": provenance_confidence or 0.0,
+                "flags": provenance_flags or [],
+            }
+        result = client.resolve_escrow(
+            escrow_id=escrow_id,
+            resolution=resolution,
+            provenance_result=provenance_result,
+        )
         return _json_result(result)
     except httpx.HTTPStatusError as e:
         try:
