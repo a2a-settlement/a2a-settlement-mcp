@@ -173,6 +173,13 @@ pytest tests/ -v
 | Project | Description |
 |---------|-------------|
 | [a2a-settlement](https://github.com/a2a-settlement/a2a-settlement) | Core exchange + SDK |
+| [a2a-settlement-auth](https://github.com/a2a-settlement/a2a-settlement-auth) | OAuth economic authorization |
+| [a2a-settlement-mediator](https://github.com/a2a-settlement/a2a-settlement-mediator) | AI-powered dispute resolution |
+| [a2a-settlement-dashboard](https://github.com/a2a-settlement/a2a-settlement-dashboard) | Human oversight dashboard |
+| [settlebridge-ai](https://github.com/a2a-settlement/settlebridge-ai) | SettleBridge Gateway — trust/policy enforcement |
+| [mcp-trust-gateway](https://github.com/a2a-settlement/mcp-trust-gateway) | MCP trust layer — complementary: evaluates trust on MCP tool invocations |
+| [otel-agent-provenance](https://github.com/a2a-settlement/otel-agent-provenance) | OpenTelemetry provenance conventions |
+| [a2a-federation-rfc](https://github.com/a2a-settlement/a2a-federation-rfc) | Federation protocol specification |
 | [langgraph-a2a-settlement](https://github.com/a2a-settlement/langgraph-a2a-settlement) | Native LangGraph graph nodes — use for LangGraph workflows |
 | [crewai-a2a-settlement](https://github.com/a2a-settlement/crewai-a2a-settlement) | Native CrewAI wrappers |
 | [litellm-a2a-settlement](https://github.com/a2a-settlement/litellm-a2a-settlement) | LiteLLM callback hooks |
