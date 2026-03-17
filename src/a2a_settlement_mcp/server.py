@@ -383,17 +383,106 @@ def settlement_refund_escrow(escrow_id: str, reason: str | None = None) -> str:
 
 
 @mcp.tool()
-def settlement_file_dispute(escrow_id: str, reason: str) -> str:
-    """File a dispute on an escrow.
+def settlement_file_dispute(escrow_id: str, reason: str, stake_amount: int = 10) -> str:
+    """File a dispute on an escrow with an ATE token stake.
 
-    Triggers the mediation process. Only requester or provider can dispute.
+    Triggers the evidence submission window (72 hours). Only requester or provider
+    can dispute. The stake is forfeited if the dispute is ruled frivolous, or
+    returned if upheld.
+
+    Args:
+        escrow_id: The escrow to dispute.
+        reason: Explanation of why the dispute is being filed.
+        stake_amount: ATE tokens to stake on this dispute (minimum 10).
     """
     err = _require_auth()
     if err:
         return _error_result(err)
     try:
         client = get_exchange_client()
-        result = client.dispute_escrow(escrow_id=escrow_id, reason=reason)
+        result = client.dispute_escrow(
+            escrow_id=escrow_id, reason=reason, stake_amount=stake_amount
+        )
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            body = e.response.json()
+            msg = body.get("error", {}).get("message", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(msg)
+    except httpx.RequestError as e:
+        return _error_result(
+            f"Exchange connection failed: {get_exchange_url()} is not responding. "
+            "Ensure the exchange is running."
+        )
+
+
+@mcp.tool()
+def settlement_submit_evidence(
+    escrow_id: str,
+    evidence_type: str,
+    summary: str,
+    artifact_type: str | None = None,
+    artifact_content: str | None = None,
+    artifact_uri: str | None = None,
+    artifact_hash: str | None = None,
+    artifact_mime_type: str | None = None,
+    encrypted: bool = False,
+    encryption_key_id: str | None = None,
+    attestor_id: str | None = None,
+    attestor_signature: str | None = None,
+) -> str:
+    """Submit structured evidence for a disputed escrow.
+
+    Called during the 72-hour evidence window after a dispute is filed.
+    Both requester and provider can submit evidence. If the respondent fails
+    to submit, a default judgment is applied.
+
+    Args:
+        escrow_id: The disputed escrow to submit evidence for.
+        evidence_type: Type of evidence: "compute", "content", "service",
+            "bounty", or "third_party_attestation".
+        summary: Brief description of the evidence (max 4096 chars).
+        artifact_type: "inline" for embedded content, "uri" for remote reference.
+        artifact_content: Inline artifact content (max 5MB, required if artifact_type="inline").
+        artifact_uri: Content-addressed URI (IPFS CID, Arweave, etc., required if artifact_type="uri").
+        artifact_hash: SHA-256 hash of the artifact content.
+        artifact_mime_type: MIME type of the artifact.
+        encrypted: Whether the evidence is encrypted (only mediator TEE can decrypt).
+        encryption_key_id: Key ID for TEE-mediated decryption.
+        attestor_id: Account ID of the third-party attestor.
+        attestor_signature: Cryptographic signature from the attestor.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        client = get_exchange_client()
+        artifacts = []
+        if artifact_type and artifact_hash:
+            artifact = {
+                "artifact_type": artifact_type,
+                "content_hash": artifact_hash,
+            }
+            if artifact_content:
+                artifact["content"] = artifact_content
+            if artifact_uri:
+                artifact["uri"] = artifact_uri
+            if artifact_mime_type:
+                artifact["mime_type"] = artifact_mime_type
+            artifacts.append(artifact)
+
+        result = client.submit_evidence(
+            escrow_id=escrow_id,
+            evidence_type=evidence_type,
+            summary=summary,
+            artifacts=artifacts or None,
+            encrypted=encrypted,
+            encryption_key_id=encryption_key_id,
+            attestor_id=attestor_id,
+            attestor_signature=attestor_signature,
+        )
         return _json_result(result)
     except httpx.HTTPStatusError as e:
         try:
