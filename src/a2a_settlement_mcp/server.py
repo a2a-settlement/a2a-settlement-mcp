@@ -872,3 +872,89 @@ def settlement_shim_audit(limit: int = 50) -> str:
         return _error_result(f"Shim audit request failed: {msg}")
     except httpx.RequestError as e:
         return _error_result(f"Shim connection failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Attestation Lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _attestation_request(method: str, path: str, json_body: dict | None = None) -> dict:
+    """Make a direct HTTP request to the exchange attestation endpoints."""
+    from a2a_settlement_mcp.config import get_exchange_url, get_api_key
+
+    base = get_exchange_url().rstrip("/")
+    url = f"{base}/v1{path}"
+    headers = {"Authorization": f"Bearer {get_api_key()}"} if get_api_key() else {}
+    resp = httpx.request(method, url, json=json_body, headers=headers, timeout=15.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
+def settlement_check_attestation_status(attestation_id: str) -> str:
+    """Check the OCSP-style status of an attestation.
+
+    Returns validity, TTL remaining, revocation status, and whether
+    the attestation is in an in-flight grace period.
+    """
+    try:
+        result = _attestation_request("GET", f"/exchange/attestations/{attestation_id}/status")
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Attestation status check failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Exchange connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_revoke_attestation(
+    attestation_id: str,
+    reason: str,
+    signatures: list[str] | None = None,
+) -> str:
+    """Revoke an attestation on the settlement exchange.
+
+    Args:
+        attestation_id: ID of the attestation to revoke.
+        reason: One of key_compromise, erroneous_issuance, deregistration, policy_violation.
+        signatures: Multi-sig signatures (required for identity/capability revocations).
+    """
+    try:
+        payload = {"reason": reason}
+        if signatures:
+            payload["signatures"] = signatures
+        result = _attestation_request("POST", f"/exchange/attestations/{attestation_id}/revoke", payload)
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Attestation revocation failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Exchange connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_renew_attestation(attestation_id: str) -> str:
+    """Renew an expiring attestation on the settlement exchange.
+
+    Charges a nominal ATE micro-fee and creates a new attestation
+    chained to the old one. The old attestation transitions to 'renewed'.
+    """
+    try:
+        result = _attestation_request("POST", f"/exchange/attestations/{attestation_id}/renew")
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Attestation renewal failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Exchange connection failed: {e}")
