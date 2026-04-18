@@ -958,3 +958,130 @@ def settlement_renew_attestation(attestation_id: str) -> str:
         return _error_result(f"Attestation renewal failed: {msg}")
     except httpx.RequestError as e:
         return _error_result(f"Exchange connection failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Anti-Self-Dealing: Principal + Diversity + Compliance Feed
+# ---------------------------------------------------------------------------
+
+
+def _exchange_get(path: str) -> dict:
+    """Simple authenticated GET to the exchange."""
+    base = get_exchange_url().rstrip("/")
+    headers = {"Authorization": f"Bearer {get_api_key()}"} if get_api_key() else {}
+    resp = httpx.get(f"{base}/v1{path}", headers=headers, timeout=15.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
+def settlement_get_principal(agent_id: str) -> str:
+    """Return the principal cluster(s) linked to an agent.
+
+    Shows which controlling entity (human or org) owns this agent identity,
+    along with link confidence and source. Useful for understanding
+    anti-self-dealing classification decisions.
+
+    Args:
+        agent_id: The exchange account ID of the agent to inspect.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        result = _exchange_get(f"/accounts/{agent_id}/principal")
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Principal lookup failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Exchange connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_get_counterparty_diversity(agent_id: str) -> str:
+    """Return counterparty diversity metrics for an agent (90-day rolling window).
+
+    Metrics are updated nightly. High HHI (Herfindahl-Hirschman Index) indicates
+    single-relationship concentration risk, which may flag as suspected self-dealing.
+
+    Returns:
+        unique_counterparties_90d: Number of distinct counterparties transacted with.
+        counterparty_hhi: Concentration index (0 = perfectly diverse, 1 = single counterparty).
+        diversity_score: Composite score (0 = concentrated, 1 = diverse).
+
+    Args:
+        agent_id: The exchange account ID of the agent to inspect.
+    """
+    err = _require_auth()
+    if err:
+        return _error_result(err)
+    try:
+        result = _exchange_get(f"/accounts/{agent_id}/counterparty-diversity")
+        return _json_result(result)
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Diversity lookup failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"Exchange connection failed: {e}")
+
+
+@mcp.tool()
+def settlement_get_compliance_feed(
+    limit: int = 20,
+    offset: int = 0,
+    feed: str = "self-dealing-feed",
+) -> str:
+    """Fetch anti-self-dealing compliance events from the SettleBridge gateway.
+
+    Requires SHIM_URL and SHIM_API_KEY to be configured (SettleBridge backend).
+
+    Args:
+        limit: Maximum number of records to return (1–200).
+        offset: Pagination offset.
+        feed: Which feed to query. One of:
+            - 'self-dealing-feed' — all classified self-dealing transactions
+            - 'null-resolutions' — disputes null-resolved due to self-dealing
+            - 'ema-suppressions' — transactions where EMA update was suppressed
+            - 'diversity-outliers' — agents with high counterparty concentration
+    """
+    allowed_feeds = {
+        "self-dealing-feed",
+        "null-resolutions",
+        "ema-suppressions",
+        "diversity-outliers",
+    }
+    if feed not in allowed_feeds:
+        return _error_result(f"Unknown feed '{feed}'. Use one of: {sorted(allowed_feeds)}")
+
+    shim_url = get_shim_url()
+    shim_key = get_shim_api_key()
+
+    if not shim_url:
+        return _error_result(
+            "SHIM_URL is not configured. Point it at your SettleBridge backend URL."
+        )
+
+    headers: dict[str, str] = {}
+    if shim_key:
+        headers["Authorization"] = f"Bearer {shim_key}"
+
+    try:
+        url = f"{shim_url.rstrip('/')}/api/compliance/{feed}?limit={limit}&offset={offset}"
+        resp = httpx.get(url, headers=headers, timeout=15.0)
+        resp.raise_for_status()
+        return _json_result(resp.json())
+    except httpx.HTTPStatusError as e:
+        try:
+            msg = e.response.json().get("detail", str(e))
+        except Exception:
+            msg = str(e)
+        return _error_result(f"Compliance feed request failed: {msg}")
+    except httpx.RequestError as e:
+        return _error_result(f"SettleBridge connection failed: {e}")
