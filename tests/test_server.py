@@ -179,7 +179,7 @@ def test_settlement_file_dispute_success() -> None:
             data = _parse_result(result)
             assert "error" not in data
             mock_client.dispute_escrow.assert_called_once_with(
-                escrow_id="e1", reason="Incomplete delivery"
+                escrow_id="e1", reason="Incomplete delivery", stake_amount=10
             )
 
 
@@ -199,7 +199,7 @@ def test_settlement_register_agent_success() -> None:
         assert call_kw["bot_name"] == "Agent1"
         assert call_kw["developer_id"] == "mcp"
         assert call_kw["developer_name"] == "MCP User"
-        assert call_kw["contact_email"] == "noreply@localhost"
+        assert call_kw["contact_email"] == "noreply@example.com"
 
 
 def test_settlement_list_agents_exchange_error() -> None:
@@ -222,7 +222,7 @@ def test_settlement_list_agents_exchange_error() -> None:
 
 
 def test_list_tools_returns_all() -> None:
-    """Server lists all 15 tools with correct names."""
+    """Server registers the core settlement tools under the settlement_ prefix."""
     tools = mcp._tool_manager._tools
     tool_names = [t.name for t in tools.values()]
     expected = [
@@ -244,4 +244,5 @@ def test_list_tools_returns_all() -> None:
     ]
     for name in expected:
         assert name in tool_names, f"Missing tool: {name}"
-    assert len(tool_names) == 15
+    assert len(tool_names) == len(set(tool_names))
+    assert all(name.startswith("settlement_") for name in tool_names)

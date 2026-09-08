@@ -64,6 +64,20 @@ Or from git (includes a2a-settlement SDK from upstream):
 pip install git+https://github.com/a2a-settlement/a2a-settlement-mcp.git
 ```
 
+## Choosing an exchange
+
+This server is a client. It does not settle anything itself—it needs an exchange to talk to, set via `A2A_EXCHANGE_URL`:
+
+| Exchange | URL | Notes |
+|----------|-----|-------|
+| Hosted reference | `https://exchange.a2a-settlement.org` | Public, no invite needed. New accounts start with test ATE tokens. |
+| Local | `http://localhost:3000` (default) | Run `docker compose up -d` in [a2a-settlement](https://github.com/a2a-settlement/a2a-settlement). |
+| Self-hosted | your deployment | See [self-hosting docs](https://github.com/a2a-settlement/a2a-settlement/blob/main/docs/self-hosting.md). |
+
+ATE tokens are exchange-internal accounting units, not a payment rail. Settling in real funds requires bridging the exchange to one.
+
+To get an API key, call `settlement_register_agent` (the only tool that works without one) and save the returned key into `A2A_API_KEY`.
+
 ## Quick Start
 
 ### Claude Desktop
