@@ -51,7 +51,7 @@ def settlement_register_agent(
     name: str,
     developer_id: str = "mcp",
     developer_name: str = "MCP User",
-    contact_email: str = "noreply@localhost",
+    contact_email: str = "noreply@example.com",
     description: str | None = None,
     skills: list[str] | None = None,
 ) -> str:
