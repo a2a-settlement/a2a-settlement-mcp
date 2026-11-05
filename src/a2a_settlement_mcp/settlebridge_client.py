@@ -87,6 +87,11 @@ def _redact_text(text: str, secrets: tuple[str, ...]) -> str:
     return text
 
 
+def redact_secrets(text: str) -> str:
+    """Replace every remembered credential in ``text`` with ``[redacted]``."""
+    return _redact_text(text, _secrets_snapshot())
+
+
 def _redact_record(record: logging.LogRecord) -> None:
     secrets = _secrets_snapshot()
     if not secrets:

@@ -31,6 +31,7 @@ from .settlebridge_client import (
     SettleBridgeClient,
     SettleBridgeError,
     parse_uuid,
+    redact_secrets,
     remember_secret,
 )
 
@@ -87,16 +88,28 @@ def _require_token() -> str | None:
     return None
 
 
+_ERROR_DETAIL_KEYS = ("error", "error_type", "tool", "evaluations", "upgrade_path", "retry_after_s")
+_MAX_ERROR_TEXT = 200
+
+
 def _http_error(exc: SettleBridgeError) -> str:
-    """Surface the SettleBridge error body verbatim with its HTTP status."""
+    """Return the SettleBridge error code, HTTP status, and allowlisted details.
+
+    The response body is untrusted, so only known fields are passed to the model
+    and known credentials are scrubbed from them.
+    """
     body = exc.body
-    if isinstance(body, dict) and "error" in body:
-        error: object = body["error"]
-    elif isinstance(body, str) and body.strip():
-        error = body.strip()
-    else:
-        error = f"HTTP {exc.status_code}"
-    return _json_result({"error": error, "status": exc.status_code, "details": body})
+    details: dict[str, Any] = {}
+    if isinstance(body, dict):
+        details = {key: body[key] for key in _ERROR_DETAIL_KEYS if key in body}
+    error: object = details.get("error")
+    if not isinstance(error, str) or not error:
+        if isinstance(body, str) and body.strip():
+            error = body.strip()[:_MAX_ERROR_TEXT]
+        else:
+            error = f"HTTP {exc.status_code}"
+    result = {"error": error, "status": exc.status_code, "details": details}
+    return redact_secrets(_json_result(result))
 
 
 def _connection_error() -> str:

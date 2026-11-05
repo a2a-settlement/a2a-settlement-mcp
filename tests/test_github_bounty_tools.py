@@ -312,7 +312,29 @@ def test_submit_author_mismatch_is_verbatim(monkeypatch: pytest.MonkeyPatch) -> 
                 lease_token=LEASE,
             )
         )
-    assert data == {"error": "pr_author_mismatch", "status": 422, "details": body}
+    assert data == {
+        "error": "pr_author_mismatch",
+        "status": 422,
+        "details": {"error": "pr_author_mismatch"},
+    }
+
+
+def test_error_body_echoing_tokens_is_not_returned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unlisted fields are dropped and remembered credentials are scrubbed."""
+    monkeypatch.setenv("SETTLEBRIDGE_GATEWAY_TOKEN", GATEWAY)
+    body = {
+        "error": f"bad token {LEASE}",
+        "headers": {"Authorization": f"Bearer {GATEWAY}"},
+        "upgrade_path": f"see {GATEWAY}",
+    }
+    with respx.mock:
+        respx.post(f"{BASE}/api/v1/github/leases/{LEASE_ID}/submit").mock(
+            return_value=httpx.Response(422, json=body)
+        )
+        raw = submit_github_patch(BOUNTY_ID, PR_URL, lease_id=LEASE_ID, lease_token=LEASE)
+    assert GATEWAY not in raw
+    assert LEASE not in raw
+    assert "headers" not in _load(raw)["details"]
 
 
 def test_lease_tools_require_gateway_token() -> None:
