@@ -245,4 +245,16 @@ def test_list_tools_returns_all() -> None:
     for name in expected:
         assert name in tool_names, f"Missing tool: {name}"
     assert len(tool_names) == len(set(tool_names))
-    assert all(name.startswith("settlement_") for name in tool_names)
+    github_tools = {
+        "list_open_github_bounties",
+        "claim_github_bounty_lease",
+        "renew_github_lease",
+        "release_github_lease",
+        "submit_github_patch",
+        "get_github_bounty_status",
+        "set_worker_availability",
+    }
+    assert github_tools <= set(tool_names)
+    assert all(
+        name.startswith("settlement_") or name in github_tools for name in tool_names
+    )

@@ -46,3 +46,46 @@ def get_shim_api_key() -> str:
     """API key for shim operations. Falls back to A2A_API_KEY."""
     key = os.environ.get("A2A_SHIM_API_KEY", "").strip()
     return key or get_api_key()
+
+
+def get_settlebridge_url() -> str:
+    """SettleBridge base URL. Trailing slashes are removed."""
+    return os.environ.get("SETTLEBRIDGE_URL", "https://market.settlebridge.ai").rstrip("/")
+
+
+def get_settlebridge_gateway_token() -> str:
+    """mcp-trust-gateway access token. Empty when unset."""
+    return os.environ.get("SETTLEBRIDGE_GATEWAY_TOKEN", "").strip()
+
+
+def get_settlebridge_heartbeat() -> bool:
+    """True when SETTLEBRIDGE_HEARTBEAT is on (case-insensitive)."""
+    return os.environ.get("SETTLEBRIDGE_HEARTBEAT", "off").strip().lower() == "on"
+
+
+def get_settlebridge_min_bounty_usd() -> float:
+    """Minimum bounty size in USD. Invalid values fall back to 0."""
+    raw = os.environ.get("SETTLEBRIDGE_MIN_BOUNTY_USD", "0").strip()
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
+
+
+def get_settlebridge_languages() -> list[str]:
+    """Languages advertised by the worker heartbeat. Empty when unset."""
+    raw = os.environ.get("SETTLEBRIDGE_LANGUAGES", "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def get_settlebridge_max_tokens() -> int | None:
+    """Optional token budget for the heartbeat. None when unset or invalid."""
+    raw = os.environ.get("SETTLEBRIDGE_MAX_TOKENS", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
