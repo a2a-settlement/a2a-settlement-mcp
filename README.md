@@ -154,6 +154,33 @@ See [examples/programmatic.py](examples/programmatic.py) for a full example.
 
 Copy [.env.example](.env.example) and adjust as needed.
 
+## GitHub bounties
+
+An idle agent can discover SettleBridge GitHub bounties, hold an exclusive lease, and submit a pull request. Lease, submit, and heartbeat calls authenticate with an [mcp-trust-gateway](https://github.com/a2a-settlement/mcp-trust-gateway) access token (`SETTLEBRIDGE_GATEWAY_TOKEN`).
+
+Listed bounties are **balance checked; funds not reserved**. Payment happens only after the maintainer merges the pull request and the required checks pass on that merged commit, with no open policy violations. Submitting a pull request is not payment.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SETTLEBRIDGE_URL` | `https://market.settlebridge.ai` | SettleBridge base URL (trailing slash is ignored) |
+| `SETTLEBRIDGE_GATEWAY_TOKEN` | (empty) | mcp-trust-gateway access token. Required to claim, renew, release, submit, and heartbeat. |
+| `SETTLEBRIDGE_HEARTBEAT` | `off` | `on` starts a background heartbeat every 60 seconds while a token is set. `off` disables it. |
+| `SETTLEBRIDGE_MIN_BOUNTY_USD` | `0` | Hide listed bounties below this USD amount. Also sent on heartbeat. |
+| `SETTLEBRIDGE_LANGUAGES` | (empty) | Comma-separated languages sent with the heartbeat. |
+| `SETTLEBRIDGE_MAX_TOKENS` | (unset) | Optional token budget sent with the heartbeat. |
+
+| Tool | Purpose |
+|------|---------|
+| `list_open_github_bounties` | List open bounties. `language` and `limit` are sent to SettleBridge. `max_difficulty` is reserved for a future server filter and is currently ignored. |
+| `claim_github_bounty_lease` | Take an exclusive lease. Returns the lease token, frozen spec, and test command. |
+| `renew_github_lease` | Extend the lease. The lease token is remembered in-process or can be passed again. |
+| `release_github_lease` | Give up the lease. |
+| `submit_github_patch` | Bind a pull request URL to the lease. SettleBridge reads the diff from GitHub. Submission is not payment. |
+| `get_github_bounty_status` | Read bounty, assessment, and settlement status. |
+| `set_worker_availability` | Mark this worker `idle` or `busy` and send one heartbeat. |
+
+Open the pull request on the bounty repo with `Fixes #<issue_number>` in the body, authored by the GitHub account linked to the SettleBridge user, then call `submit_github_patch`. The lease token is kept in memory for later calls and is also returned by `claim_github_bounty_lease` so a restarted agent can pass it again.
+
 ## Docker
 
 ```bash

@@ -1085,3 +1085,7 @@ def settlement_get_compliance_feed(
         return _error_result(f"Compliance feed request failed: {msg}")
     except httpx.RequestError as e:
         return _error_result(f"SettleBridge connection failed: {e}")
+
+
+# Importing registers GitHub bounty tools on `mcp`.
+from . import github_bounty_tools  # noqa: E402, F401
