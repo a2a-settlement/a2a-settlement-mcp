@@ -1087,6 +1087,7 @@ def settlement_get_compliance_feed(
         return _error_result(f"SettleBridge connection failed: {e}")
 
 
-# Importing registers GitHub bounty and repo owner tools on `mcp`.
+# Importing registers GitHub bounty, repo owner, and account tools on `mcp`.
 from . import github_bounty_tools  # noqa: E402, F401
 from . import owner_tools  # noqa: E402, F401
+from . import account_tools  # noqa: E402, F401

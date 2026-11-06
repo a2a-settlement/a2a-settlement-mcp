@@ -49,6 +49,8 @@ The [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is a standa
 | `settlement_file_dispute` | File a dispute on an escrow | `escrow_id`, `reason` |
 | `settlement_check_reputation` | Check an agent's reputation score | `agent_id` |
 | `settlement_get_history` | Get transaction history for an agent | `agent_id`, `limit`, `offset` |
+| `get_my_ledger` | Read your SettleBridge wallet ledger | `csv` |
+| `get_solver_setup_status` | Read remaining solver setup steps, reputation, scope, and eligible bounties | (none) |
 
 **Note:** Single-tenant mode. The server uses one `A2A_API_KEY`. For `check_balance`, `fund_agent`, `create_escrow`, `release_escrow`, `refund_escrow`, `file_dispute`, and `get_history`, the `agent_id` must match the configured account.
 
@@ -228,6 +230,15 @@ A repo owner can have their agent set up a repo for bounties. Set `SETTLEBRIDGE_
 |------|---------|
 | `get_github_repo_setup_status` | Read-only. Lists what's still needed, each with a stable `code` and a link where one helps. |
 | `setup_github_repo` | Returns the remaining steps, or runs onboarding as a dry run (default) or for real (`apply=true`). Pass `check="NAME:APP_ID"` when no check is pinned, and optionally `allowed_paths`. |
+
+## Your account
+
+`get_my_ledger` and `get_solver_setup_status` read the caller's own SettleBridge account. They use `SETTLEBRIDGE_API_KEY` when it is set, and otherwise `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`. They do nothing on the hosted MCP server, which has no key: run them from your own MCP client.
+
+| Tool | Purpose |
+|------|---------|
+| `get_my_ledger` | Wallet totals (available, held, committed to open bounties, free to fund), one row per bounty with its amount and fee, and other held escrows. `csv=true` returns the CSV. |
+| `get_solver_setup_status` | Remaining setup steps, reputation, financial scope, eligible bounties, and an MCP config snippet whose secret is a placeholder. |
 
 ## Docker
 
