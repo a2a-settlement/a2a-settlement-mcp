@@ -25,7 +25,9 @@ from .config import (
     get_settlebridge_max_tokens,
     get_settlebridge_min_bounty_usd,
     get_settlebridge_url,
+    settlebridge_gateway_configured,
 )
+from .gateway_token import GatewayTokenError, get_provider, reset_provider
 from .server import _error_result, _json_result, mcp
 from .settlebridge_client import (
     SettleBridgeClient,
@@ -52,8 +54,9 @@ SUBMISSION_NOTE = (
 )
 
 _TOKEN_REQUIRED = (
-    "SETTLEBRIDGE_GATEWAY_TOKEN is required. "
-    "Set an mcp-trust-gateway access token in the server environment."
+    "Gateway credentials are required. Set SETTLEBRIDGE_GATEWAY_CLIENT_ID and "
+    "SETTLEBRIDGE_GATEWAY_CLIENT_SECRET (exchange account id and API key) so the server "
+    "fetches and refreshes tokens, or set SETTLEBRIDGE_GATEWAY_TOKEN."
 )
 
 _LEASE_TOKEN_REQUIRED = (
@@ -76,6 +79,9 @@ _thread: threading.Thread | None = None
 
 
 def _new_client() -> SettleBridgeClient:
+    provider = get_provider()
+    if provider is not None:
+        return SettleBridgeClient(get_settlebridge_url(), token_provider=provider)
     return SettleBridgeClient(
         get_settlebridge_url(),
         get_settlebridge_gateway_token(),
@@ -83,7 +89,7 @@ def _new_client() -> SettleBridgeClient:
 
 
 def _require_token() -> str | None:
-    if not get_settlebridge_gateway_token():
+    if not settlebridge_gateway_configured():
         return _error_result(_TOKEN_REQUIRED)
     return None
 
@@ -124,6 +130,8 @@ def _run(action: Callable[[], Any]) -> str:
         return _json_result(action())
     except SettleBridgeError as exc:
         return _http_error(exc)
+    except GatewayTokenError as exc:
+        return _error_result(redact_secrets(str(exc)))
     except ValueError as exc:
         return _error_result(str(exc))
     except httpx.RequestError:
@@ -213,7 +221,7 @@ def _claim_guidance(payload: dict[str, Any]) -> str:
 
 
 def _heartbeat_configured() -> bool:
-    return get_settlebridge_heartbeat() and bool(get_settlebridge_gateway_token())
+    return get_settlebridge_heartbeat() and settlebridge_gateway_configured()
 
 
 def _worker_settings() -> tuple[str, float, int | None]:
@@ -233,8 +241,7 @@ def _worker_settings() -> tuple[str, float, int | None]:
 
 
 def _send_heartbeat() -> Any:
-    token = get_settlebridge_gateway_token()
-    if not token:
+    if not settlebridge_gateway_configured():
         return {}
     status, minimum, max_tokens = _worker_settings()
     return _new_client().heartbeat(
@@ -268,7 +275,7 @@ def start_heartbeat(interval_s: float = _DEFAULT_HEARTBEAT_INTERVAL_S) -> None:
     """Start the daemon heartbeat when it is enabled and a gateway token is set.
 
     Safe to call more than once. Does nothing when SETTLEBRIDGE_HEARTBEAT is
-    off or SETTLEBRIDGE_GATEWAY_TOKEN is empty. Never writes to stdout.
+    off or no gateway credentials are set. Never writes to stdout.
     ``interval_s`` overrides the 60 second period (tests inject a short one).
     """
     global _thread, _stop
@@ -313,6 +320,7 @@ def _ensure_heartbeat() -> None:
 def reset_local_state() -> None:
     """Clear in-process leases and worker settings. Used by tests."""
     stop_heartbeat()
+    reset_provider()
     with _state_lock:
         _leases.clear()
         _worker["status"] = "AVAILABLE_IDLE"
@@ -371,7 +379,8 @@ def list_open_github_bounties(
 def claim_github_bounty_lease(bounty_id: str) -> str:
     """Claim an exclusive lease on a GitHub bounty.
 
-    Requires SETTLEBRIDGE_GATEWAY_TOKEN (an mcp-trust-gateway access token).
+    Requires gateway credentials (SETTLEBRIDGE_GATEWAY_CLIENT_ID and _SECRET, or
+    SETTLEBRIDGE_GATEWAY_TOKEN).
     The lease token is stored in this process and also returned so a restarted
     agent can pass it to later tools. The response includes the frozen spec
     and test command.
@@ -409,7 +418,7 @@ def renew_github_lease(lease_id: str, lease_token: str = "") -> str:
     """Keep a bounty lease alive until its work deadline.
 
     ``lease_token`` may be omitted when this process claimed the lease.
-    Requires SETTLEBRIDGE_GATEWAY_TOKEN. Renewing a lease is not payment.
+    Requires gateway credentials. Renewing a lease is not payment.
     Payment happens only after the maintainer merges the pull request and
     required checks pass on that merged commit.
     """
@@ -430,7 +439,7 @@ def release_github_lease(lease_id: str, lease_token: str = "") -> str:
     """Release an exclusive bounty lease so another agent can claim it.
 
     ``lease_token`` may be omitted when this process claimed the lease.
-    Requires SETTLEBRIDGE_GATEWAY_TOKEN. Releasing a lease is not payment.
+    Requires gateway credentials. Releasing a lease is not payment.
     """
     missing = _require_token()
     if missing:
@@ -506,7 +515,7 @@ def set_worker_availability(
 
     ``mode`` is ``idle`` (AVAILABLE_IDLE) or ``busy`` (BUSY_PREEMPTED),
     case-insensitive. Saved settings are reused by the background heartbeat.
-    Requires SETTLEBRIDGE_GATEWAY_TOKEN. This does not claim or pay a bounty.
+    Requires gateway credentials. This does not claim or pay a bounty.
     Listed bounties are balance checked; funds not reserved.
     """
     mode_key = (mode or "").strip().lower()

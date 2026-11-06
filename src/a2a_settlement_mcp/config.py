@@ -58,6 +58,39 @@ def get_settlebridge_gateway_token() -> str:
     return os.environ.get("SETTLEBRIDGE_GATEWAY_TOKEN", "").strip()
 
 
+DEFAULT_GATEWAY_TOKEN_URL = "https://gateway.a2a-settlement.org/oauth/token"
+DEFAULT_GATEWAY_SCOPE = "mcp:read mcp:tool:financial"
+
+
+def get_settlebridge_gateway_client_id() -> str:
+    """Exchange account id used to fetch gateway tokens. Empty when unset."""
+    return os.environ.get("SETTLEBRIDGE_GATEWAY_CLIENT_ID", "").strip()
+
+
+def get_settlebridge_gateway_client_secret() -> str:
+    """Exchange API key used to fetch gateway tokens. Empty when unset."""
+    return os.environ.get("SETTLEBRIDGE_GATEWAY_CLIENT_SECRET", "").strip()
+
+
+def get_settlebridge_gateway_token_url() -> str:
+    """mcp-trust-gateway token endpoint."""
+    url = os.environ.get("SETTLEBRIDGE_GATEWAY_TOKEN_URL", "").strip()
+    return url or DEFAULT_GATEWAY_TOKEN_URL
+
+
+def get_settlebridge_gateway_scope() -> str:
+    """Scope requested for fetched gateway tokens."""
+    scope = " ".join(os.environ.get("SETTLEBRIDGE_GATEWAY_SCOPE", "").split())
+    return scope or DEFAULT_GATEWAY_SCOPE
+
+
+def settlebridge_gateway_configured() -> bool:
+    """True when a static gateway token or both client credentials are set."""
+    if get_settlebridge_gateway_client_id() and get_settlebridge_gateway_client_secret():
+        return True
+    return bool(get_settlebridge_gateway_token())
+
+
 def get_settlebridge_heartbeat() -> bool:
     """True when SETTLEBRIDGE_HEARTBEAT is on (case-insensitive)."""
     return os.environ.get("SETTLEBRIDGE_HEARTBEAT", "off").strip().lower() == "on"
