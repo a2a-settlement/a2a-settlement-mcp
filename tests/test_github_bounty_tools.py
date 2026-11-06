@@ -54,6 +54,13 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Keep leases, worker settings, and the heartbeat thread inside each test."""
     monkeypatch.delenv("SETTLEBRIDGE_URL", raising=False)
     monkeypatch.delenv("SETTLEBRIDGE_GATEWAY_TOKEN", raising=False)
+    for name in (
+        "SETTLEBRIDGE_GATEWAY_CLIENT_ID",
+        "SETTLEBRIDGE_GATEWAY_CLIENT_SECRET",
+        "SETTLEBRIDGE_GATEWAY_TOKEN_URL",
+        "SETTLEBRIDGE_GATEWAY_SCOPE",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("SETTLEBRIDGE_HEARTBEAT", raising=False)
     monkeypatch.delenv("SETTLEBRIDGE_MIN_BOUNTY_USD", raising=False)
     monkeypatch.delenv("SETTLEBRIDGE_LANGUAGES", raising=False)

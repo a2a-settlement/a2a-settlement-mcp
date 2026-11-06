@@ -66,9 +66,10 @@ def parse_uuid(value: str, *, field: str) -> str:
 
 def _secrets_snapshot() -> tuple[str, ...]:
     found: list[str] = []
-    env_token = os.environ.get("SETTLEBRIDGE_GATEWAY_TOKEN", "").strip()
-    if len(env_token) >= _MIN_SECRET_LEN:
-        found.append(env_token)
+    for name in ("SETTLEBRIDGE_GATEWAY_TOKEN", "SETTLEBRIDGE_GATEWAY_CLIENT_SECRET"):
+        env_secret = os.environ.get(name, "").strip()
+        if len(env_secret) >= _MIN_SECRET_LEN:
+            found.append(env_secret)
     with _secrets_lock:
         found.extend(secret for secret in _known_secrets if len(secret) >= _MIN_SECRET_LEN)
     unique: list[str] = []
@@ -157,10 +158,19 @@ def _response_body(response: httpx.Response) -> Any:
 class SettleBridgeClient:
     """Small synchronous SettleBridge client. One method per bounty endpoint."""
 
-    def __init__(self, base_url: str, gateway_token: str = "", *, timeout: float = 30) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        gateway_token: str = "",
+        *,
+        timeout: float = 30,
+        token_provider: Any = None,
+    ) -> None:
+        """``token_provider`` has ``get()`` and ``invalidate(token)``; it replaces ``gateway_token``."""
         self._base_url = base_url.rstrip("/")
         self._gateway_token = gateway_token.strip()
         self._timeout = timeout
+        self._token_provider = token_provider
         if self._gateway_token:
             remember_secret(self._gateway_token)
 
@@ -257,20 +267,7 @@ class SettleBridgeClient:
                 raise ValueError("lease_token is required")
             _reject_header_break(lease_token)
             remember_secret(lease_token)
-        headers: dict[str, str] = {}
-        if self._gateway_token:
-            _reject_header_break(self._gateway_token)
-            headers["Authorization"] = f"Bearer {self._gateway_token}"
-        if lease_token is not None:
-            headers["X-Lease-Token"] = lease_token
-        with httpx.Client(timeout=self._timeout) as http:
-            response = http.request(
-                method,
-                f"{self._base_url}{path}",
-                params=params,
-                json=json_body,
-                headers=headers,
-            )
+        response = self._send(method, path, params, json_body, lease_token)
         if response.status_code < 200 or response.status_code >= 300:
             raise SettleBridgeError(response.status_code, _response_body(response))
         if not response.content:
@@ -279,3 +276,46 @@ class SettleBridgeClient:
             return response.json()
         except json.JSONDecodeError:
             raise SettleBridgeError(response.status_code, response.text) from None
+
+    def _send(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, str] | None,
+        json_body: dict[str, Any] | None,
+        lease_token: str | None,
+    ) -> httpx.Response:
+        """Send once; with a token provider, fetch a new token and retry once after a 401."""
+        provider = self._token_provider
+        token = provider.get() if provider is not None else self._gateway_token
+        response = self._send_once(method, path, params, json_body, lease_token, token)
+        if response.status_code == 401 and provider is not None:
+            provider.invalidate(token)
+            response = self._send_once(
+                method, path, params, json_body, lease_token, provider.get()
+            )
+        return response
+
+    def _send_once(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, str] | None,
+        json_body: dict[str, Any] | None,
+        lease_token: str | None,
+        token: str,
+    ) -> httpx.Response:
+        headers: dict[str, str] = {}
+        if token:
+            _reject_header_break(token)
+            headers["Authorization"] = f"Bearer {token}"
+        if lease_token is not None:
+            headers["X-Lease-Token"] = lease_token
+        with httpx.Client(timeout=self._timeout) as http:
+            return http.request(
+                method,
+                f"{self._base_url}{path}",
+                params=params,
+                json=json_body,
+                headers=headers,
+            )
