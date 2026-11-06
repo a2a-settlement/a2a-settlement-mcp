@@ -13,12 +13,15 @@ import os
 import re
 import threading
 import uuid
+from collections import OrderedDict
 from typing import Any
 
 import httpx
 
 _secrets_lock = threading.Lock()
-_known_secrets: set[str] = set()
+# Bounded: the hosted server remembers every caller's key and token. Oldest drop first.
+_MAX_KNOWN_SECRETS = 5000
+_known_secrets: OrderedDict[str, None] = OrderedDict()
 _redaction_installed = False
 _factory_guard = threading.local()
 
@@ -47,7 +50,10 @@ def remember_secret(value: str) -> None:
     if len(secret) < _MIN_SECRET_LEN:
         return
     with _secrets_lock:
-        _known_secrets.add(secret)
+        _known_secrets[secret] = None
+        _known_secrets.move_to_end(secret)
+        while len(_known_secrets) > _MAX_KNOWN_SECRETS:
+            _known_secrets.popitem(last=False)
 
 
 def parse_uuid(value: str, *, field: str) -> str:

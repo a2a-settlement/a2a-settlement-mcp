@@ -59,7 +59,9 @@ def get_settlebridge_gateway_token() -> str:
 
 
 DEFAULT_GATEWAY_TOKEN_URL = "https://gateway.a2a-settlement.org/oauth/token"
-DEFAULT_GATEWAY_SCOPE = "mcp:read mcp:tool:financial"
+# Lease routes require mcp:read. mcp:tool:financial is refused for accounts
+# that are not on the gateway allowlist, so it is not the default.
+DEFAULT_GATEWAY_SCOPE = "mcp:read"
 
 
 def get_settlebridge_gateway_client_id() -> str:

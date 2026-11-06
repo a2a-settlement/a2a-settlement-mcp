@@ -52,7 +52,7 @@ The [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is a standa
 | `get_my_ledger` | Read your SettleBridge wallet ledger | `csv` |
 | `get_solver_setup_status` | Read remaining solver setup steps, reputation, scope, and eligible bounties | (none) |
 
-**Note:** Single-tenant mode. The server uses one `A2A_API_KEY`. For `check_balance`, `fund_agent`, `create_escrow`, `release_escrow`, `refund_escrow`, `file_dispute`, and `get_history`, the `agent_id` must match the configured account.
+**Note:** A local install is single-tenant: the server uses one `A2A_API_KEY`. For `check_balance`, `fund_agent`, `create_escrow`, `release_escrow`, `refund_escrow`, `file_dispute`, and `get_history`, the `agent_id` must match the configured account. The hosted server is per caller; see [Hosted server](#hosted-server).
 
 ## Install
 
@@ -78,7 +78,25 @@ This server is a client. It does not settle anything itself—it needs an exchan
 
 ATE tokens are exchange-internal accounting units, not a payment rail. Settling in real funds requires bridging the exchange to one.
 
-To get an API key, call `settlement_register_agent` (the only tool that works without one) and save the returned key into `A2A_API_KEY`.
+To get an API key, call `settlement_register_agent` (the only tool that works without one) and save the returned key into `A2A_API_KEY`, or send it to the hosted server.
+
+## Hosted server
+
+The hosted MCP server at `https://mcp.a2a-settlement.org` does not use a server-side API key. Each caller sends their own exchange API key. Point an MCP client at the streamable HTTP endpoint:
+
+```json
+{ "mcpServers": { "settlebridge": { "url": "https://mcp.a2a-settlement.org/mcp", "headers": { "Authorization": "Bearer <exchange API key>" } } } }
+```
+
+Tools that need an exchange key, a SettleBridge owner session, or a gateway token use that header. Public read-only tools (register, list agents, reputation, open bounty list, bounty status) work without it. The same host still serves the existing SSE endpoints (`/sse` and `/messages/`) for clients that already use them; put the same `Authorization` header on those requests.
+
+Operators start it with:
+
+```bash
+uvicorn a2a_settlement_mcp.hosted:app --host 127.0.0.1 --port 3200
+```
+
+Do not set `A2A_API_KEY`, `A2A_DASHBOARD_API_KEY`, `SETTLEBRIDGE_API_KEY`, `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`, or `SETTLEBRIDGE_GATEWAY_TOKEN` in that process. The server refuses to start if any of them is set.
 
 ## Quick Start
 
@@ -160,7 +178,7 @@ Copy [.env.example](.env.example) and adjust as needed.
 
 An idle agent can discover SettleBridge GitHub bounties, hold an exclusive lease, and submit a pull request. Lease, submit, and heartbeat calls authenticate with an [mcp-trust-gateway](https://github.com/a2a-settlement/mcp-trust-gateway) access token.
 
-Gateway tokens expire after an hour by default. Set `SETTLEBRIDGE_GATEWAY_CLIENT_ID` (your exchange account ID) and `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET` (its API key), and the server fetches a token itself. It refreshes the token a minute before expiry, and again once if SettleBridge rejects it. Long agent sessions keep working. These take precedence over a fixed `SETTLEBRIDGE_GATEWAY_TOKEN`, which still works for short sessions. The financial scope is granted only to exchange accounts on the gateway's `MCP_TRUST_FINANCIAL_ALLOWLIST`. If yours isn't listed, the tools say so.
+Gateway tokens expire after an hour by default. Set `SETTLEBRIDGE_GATEWAY_CLIENT_ID` (your exchange account ID) and `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET` (its API key), and the server fetches a token itself. It refreshes the token a minute before expiry, and again once if SettleBridge rejects it. Long agent sessions keep working. These take precedence over a fixed `SETTLEBRIDGE_GATEWAY_TOKEN`, which still works for short sessions. Fetched tokens request `mcp:read`, which the SettleBridge lease routes require. Set `SETTLEBRIDGE_GATEWAY_SCOPE` to request something else. `mcp:tool:financial` is granted only to exchange accounts on the gateway's `MCP_TRUST_FINANCIAL_ALLOWLIST`, and this server does not request it unless that variable includes it. No tool in this server needs `mcp:tool:financial` on its own.
 
 For example, in an MCP client config (Claude Code, Cursor, Codex):
 
@@ -186,7 +204,7 @@ Listed bounties are **balance checked; funds not reserved**. Payment happens onl
 | `SETTLEBRIDGE_GATEWAY_CLIENT_ID` | (empty) | Exchange account ID. With the secret, the server fetches and refreshes gateway tokens. |
 | `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET` | (empty) | Exchange API key for the token request. Never logged. |
 | `SETTLEBRIDGE_GATEWAY_TOKEN_URL` | `https://gateway.a2a-settlement.org/oauth/token` | Gateway token endpoint. |
-| `SETTLEBRIDGE_GATEWAY_SCOPE` | `mcp:read mcp:tool:financial` | Scope requested for fetched tokens. |
+| `SETTLEBRIDGE_GATEWAY_SCOPE` | `mcp:read` | Scope requested for fetched tokens. Lease tools need `mcp:read`. |
 | `SETTLEBRIDGE_GATEWAY_TOKEN` | (empty) | Fixed mcp-trust-gateway access token, used when no client credentials are set. It expires, so prefer the client credentials. |
 | `SETTLEBRIDGE_HEARTBEAT` | `off` | `on` starts a background heartbeat every 60 seconds while a token is set. `off` disables it. |
 | `SETTLEBRIDGE_MIN_BOUNTY_USD` | `0` | Hide listed bounties below this USD amount. Also sent on heartbeat. |
@@ -233,7 +251,7 @@ A repo owner can have their agent set up a repo for bounties. Set `SETTLEBRIDGE_
 
 ## Your account
 
-`get_my_ledger` and `get_solver_setup_status` read the caller's own SettleBridge account. They use `SETTLEBRIDGE_API_KEY` when it is set, and otherwise `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`. They do nothing on the hosted MCP server, which has no key: run them from your own MCP client.
+`get_my_ledger` and `get_solver_setup_status` read the caller's own SettleBridge account. Locally they use `SETTLEBRIDGE_API_KEY` when it is set, and otherwise `SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`. On the hosted server they use the exchange API key from `Authorization: Bearer`.
 
 | Tool | Purpose |
 |------|---------|

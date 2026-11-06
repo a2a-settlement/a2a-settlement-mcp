@@ -75,7 +75,7 @@ def _provider(clock: Clock | None = None, scope: str = DEFAULT_GATEWAY_SCOPE) ->
 
 def test_config_defaults_and_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_settlebridge_gateway_token_url() == DEFAULT_GATEWAY_TOKEN_URL
-    assert get_settlebridge_gateway_scope() == "mcp:read mcp:tool:financial"
+    assert get_settlebridge_gateway_scope() == "mcp:read"
     assert settlebridge_gateway_configured() is False
     monkeypatch.setenv("SETTLEBRIDGE_GATEWAY_CLIENT_ID", CLIENT_ID)
     assert settlebridge_gateway_configured() is False
@@ -91,7 +91,7 @@ def test_provider_is_reused_until_the_environment_changes(monkeypatch: pytest.Mo
     monkeypatch.setenv("SETTLEBRIDGE_GATEWAY_CLIENT_SECRET", SECRET)
     first = get_provider()
     assert first is not None and get_provider() is first
-    monkeypatch.setenv("SETTLEBRIDGE_GATEWAY_SCOPE", "mcp:read")
+    monkeypatch.setenv("SETTLEBRIDGE_GATEWAY_SCOPE", "mcp:read mcp:tool:financial")
     assert get_provider() is not first
     reset_provider()
 
@@ -108,7 +108,7 @@ def test_fetch_sends_client_credentials_and_caches() -> None:
         "grant_type": ["client_credentials"],
         "client_id": [CLIENT_ID],
         "client_secret": [SECRET],
-        "scope": ["mcp:read mcp:tool:financial"],
+        "scope": ["mcp:read"],
     }
     assert SECRET not in str(route.calls[0].request.url)
 
@@ -169,10 +169,16 @@ def test_invalidate_only_drops_the_current_token() -> None:
     ],
 )
 def test_fetch_errors_are_safe_and_actionable(response: httpx.Response, expected: str) -> None:
+    # The financial allowlist hints only apply when that scope was requested.
+    scope = (
+        "mcp:read mcp:tool:financial"
+        if "financial" in expected.lower()
+        else DEFAULT_GATEWAY_SCOPE
+    )
     with respx.mock:
         respx.post(TOKEN_URL).mock(return_value=response)
         with pytest.raises(GatewayTokenError, match=expected) as caught:
-            _provider().get()
+            _provider(scope=scope).get()
     assert SECRET not in str(caught.value)
     assert CLIENT_ID not in str(caught.value)
 
@@ -263,7 +269,8 @@ def test_claim_tool_reports_token_errors_without_secrets(monkeypatch: pytest.Mon
             return_value=httpx.Response(400, json={"error": "invalid_scope"})
         )
         result = claim_github_bounty_lease(BOUNTY_ID)
-    assert "MCP_TRUST_FINANCIAL_ALLOWLIST" in result
+    assert "invalid_scope" in result
+    assert "MCP_TRUST_FINANCIAL_ALLOWLIST" not in result
     assert SECRET not in result
 
 

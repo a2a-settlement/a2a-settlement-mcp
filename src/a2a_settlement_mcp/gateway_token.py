@@ -10,8 +10,10 @@ redaction and never appear in error messages.
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
+from collections import OrderedDict
 from typing import Callable
 
 import httpx
@@ -25,9 +27,13 @@ from a2a_settlement_mcp.config import (
 from a2a_settlement_mcp.settlebridge_client import remember_secret
 
 FINANCIAL_SCOPE = "mcp:tool:financial"
+# GitHub lease routes require this scope. Do not add mcp:tool:financial here:
+# the gateway refuses that scope for accounts that are not allowlisted.
+LEASE_SCOPE = "mcp:read"
 _REFRESH_MARGIN_S = 60.0
 _DEFAULT_EXPIRES_IN_S = 300.0
 _MAX_ERROR_TEXT = 100
+_PROVIDER_CACHE_MAX = 1000
 
 
 class GatewayTokenError(Exception):
@@ -147,30 +153,66 @@ class GatewayTokenProvider:
 
 
 _provider_lock = threading.Lock()
-_provider: GatewayTokenProvider | None = None
+_providers: OrderedDict[str, GatewayTokenProvider] = OrderedDict()
+
+
+def _provider_cache_id(token_url: str, client_id: str, client_secret: str, scope: str) -> str:
+    """Cache id for one caller. The raw secret is not the key."""
+    material = "\0".join((token_url, client_id, client_secret, scope)).encode()
+    return hashlib.sha256(material).hexdigest()
+
+
+def provider_for(
+    token_url: str,
+    client_id: str,
+    client_secret: str,
+    scope: str,
+    *,
+    clock: Callable[[], float] | None = None,
+) -> GatewayTokenProvider:
+    """Thread-safe LRU of gateway providers, keyed by sha256 of the credentials.
+
+    The same caller reuses one provider so its token refreshes before expiry.
+    """
+    cache_id = _provider_cache_id(token_url, client_id, client_secret, scope)
+    with _provider_lock:
+        existing = _providers.get(cache_id)
+        if existing is not None:
+            _providers.move_to_end(cache_id)
+            return existing
+    if clock is None:
+        created = GatewayTokenProvider(token_url, client_id, client_secret, scope)
+    else:
+        created = GatewayTokenProvider(token_url, client_id, client_secret, scope, clock=clock)
+    with _provider_lock:
+        existing = _providers.get(cache_id)
+        if existing is not None:
+            _providers.move_to_end(cache_id)
+            return existing
+        _providers[cache_id] = created
+        while len(_providers) > _PROVIDER_CACHE_MAX:
+            _providers.popitem(last=False)
+        return created
 
 
 def get_provider() -> GatewayTokenProvider | None:
-    """The provider for the current environment, or None without client credentials."""
-    global _provider
+    """The provider for the current environment, or None without client credentials.
+
+    GitHub lease tools use this. The requested scope defaults to ``mcp:read``.
+    """
     client_id = get_settlebridge_gateway_client_id()
     client_secret = get_settlebridge_gateway_client_secret()
     if not client_id or not client_secret:
         return None
-    key = (
+    return provider_for(
         get_settlebridge_gateway_token_url(),
         client_id,
         client_secret,
         get_settlebridge_gateway_scope(),
     )
-    with _provider_lock:
-        if _provider is None or _provider.key != key:
-            _provider = GatewayTokenProvider(*key)
-        return _provider
 
 
 def reset_provider() -> None:
-    """Forget the cached provider and token. Used by tests."""
-    global _provider
+    """Forget cached providers and tokens. Used by tests."""
     with _provider_lock:
-        _provider = None
+        _providers.clear()
