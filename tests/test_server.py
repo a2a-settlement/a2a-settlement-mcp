@@ -256,7 +256,10 @@ def test_list_tools_returns_all() -> None:
         "get_github_repo_setup_status",
         "setup_github_repo",
     }
+    account_tools = {"get_my_ledger", "get_solver_setup_status"}
     assert github_tools <= set(tool_names)
+    assert account_tools <= set(tool_names)
     assert all(
-        name.startswith("settlement_") or name in github_tools for name in tool_names
+        name.startswith("settlement_") or name in github_tools or name in account_tools
+        for name in tool_names
     )
