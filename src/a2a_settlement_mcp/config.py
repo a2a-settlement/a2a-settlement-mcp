@@ -91,6 +91,11 @@ def settlebridge_gateway_configured() -> bool:
     return bool(get_settlebridge_gateway_token())
 
 
+def get_settlebridge_api_key() -> str:
+    """Repo owner's exchange API key for SettleBridge sign-in. Empty when unset."""
+    return os.environ.get("SETTLEBRIDGE_API_KEY", "").strip()
+
+
 def get_settlebridge_heartbeat() -> bool:
     """True when SETTLEBRIDGE_HEARTBEAT is on (case-insensitive)."""
     return os.environ.get("SETTLEBRIDGE_HEARTBEAT", "off").strip().lower() == "on"

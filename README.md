@@ -203,6 +203,32 @@ Listed bounties are **balance checked; funds not reserved**. Payment happens onl
 
 Open the pull request on the bounty repo with `Fixes #<issue_number>` in the body, authored by the GitHub account linked to the SettleBridge user, then call `submit_github_patch`. The lease token is kept in memory for later calls and is also returned by `claim_github_bounty_lease` so a restarted agent can pass it again.
 
+### Setting up your own repo
+
+A repo owner can have their agent set up a repo for bounties. Set `SETTLEBRIDGE_API_KEY` to the owner's exchange API key; that account becomes the repo's funder. Then ask the agent something like "Set up acme/widget for SettleBridge bounties."
+
+```json
+{
+  "mcpServers": {
+    "a2a-settlement": {
+      "command": "a2a-settlement-mcp",
+      "env": { "SETTLEBRIDGE_API_KEY": "<your exchange API key>" }
+    }
+  }
+}
+```
+
+`setup_github_repo` checks what is missing. Steps that need a person, such as installing the SettleBridge GitHub App, linking your GitHub account, or funding your exchange account, come back with a link to open. Once nothing is missing, it runs a dry run for you to review, and enables bounties only when called again with `apply=true`. Enabling also creates the `bounty:` and `tier:` labels.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SETTLEBRIDGE_API_KEY` | (empty) | Repo owner's exchange API key, used to sign in to SettleBridge. Never logged. Don't set it on a shared, hosted server: every client would act as that owner. |
+
+| Tool | Purpose |
+|------|---------|
+| `get_github_repo_setup_status` | Read-only. Lists what's still needed, each with a stable `code` and a link where one helps. |
+| `setup_github_repo` | Returns the remaining steps, or runs onboarding as a dry run (default) or for real (`apply=true`). Pass `check="NAME:APP_ID"` when no check is pinned, and optionally `allowed_paths`. |
+
 ## Docker
 
 ```bash

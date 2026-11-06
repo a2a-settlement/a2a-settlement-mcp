@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from typing import Any
@@ -64,9 +65,26 @@ def parse_uuid(value: str, *, field: str) -> str:
     return str(parsed)
 
 
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def parse_repo(value: str) -> str:
+    """Return ``owner/name`` or raise ValueError, so a repo can't change the URL path."""
+    text = value.strip() if isinstance(value, str) else ""
+    if text.startswith("https://github.com/"):
+        text = text.removeprefix("https://github.com/").removesuffix(".git").strip("/")
+    if not _REPO_RE.fullmatch(text) or any(part in (".", "..") for part in text.split("/")):
+        raise ValueError("Invalid repo: use owner/name, such as acme/widget")
+    return text
+
+
 def _secrets_snapshot() -> tuple[str, ...]:
     found: list[str] = []
-    for name in ("SETTLEBRIDGE_GATEWAY_TOKEN", "SETTLEBRIDGE_GATEWAY_CLIENT_SECRET"):
+    for name in (
+        "SETTLEBRIDGE_GATEWAY_TOKEN",
+        "SETTLEBRIDGE_GATEWAY_CLIENT_SECRET",
+        "SETTLEBRIDGE_API_KEY",
+    ):
         env_secret = os.environ.get(name, "").strip()
         if len(env_secret) >= _MIN_SECRET_LEN:
             found.append(env_secret)
@@ -251,6 +269,26 @@ class SettleBridgeClient:
         if max_tokens is not None:
             body["max_tokens"] = int(max_tokens)
         return self._request("POST", "/api/v1/workers/heartbeat", json_body=body)
+
+    def repo_setup_status(self, repo: str) -> Any:
+        """GET /api/v1/github/repos/{owner}/{name}/setup-status. Needs an owner session."""
+        return self._request("GET", f"/api/v1/github/repos/{parse_repo(repo)}/setup-status")
+
+    def onboard_repo(
+        self,
+        repo: str,
+        *,
+        checks: list[dict[str, Any]],
+        allowed_paths: list[str] | None = None,
+        dry_run: bool = True,
+    ) -> Any:
+        """POST /api/v1/github/repos/{owner}/{name}/onboard. Needs an owner session."""
+        body: dict[str, Any] = {"checks": checks, "dry_run": dry_run}
+        if allowed_paths is not None:
+            body["allowed_paths"] = allowed_paths
+        return self._request(
+            "POST", f"/api/v1/github/repos/{parse_repo(repo)}/onboard", json_body=body
+        )
 
     def _request(
         self,
