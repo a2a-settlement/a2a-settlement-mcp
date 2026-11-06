@@ -253,6 +253,8 @@ def test_list_tools_returns_all() -> None:
         "submit_github_patch",
         "get_github_bounty_status",
         "set_worker_availability",
+        "get_github_repo_setup_status",
+        "setup_github_repo",
     }
     assert github_tools <= set(tool_names)
     assert all(
