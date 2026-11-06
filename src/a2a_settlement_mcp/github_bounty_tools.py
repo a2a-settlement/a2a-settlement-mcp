@@ -390,10 +390,16 @@ def claim_github_bounty_lease(bounty_id: str) -> str:
     SettleBridge user, then call submit_github_patch. SettleBridge fetches
     the diff from GitHub.
 
-    Listed bounties are balance checked; funds not reserved. Claiming a lease
-    does not pay the bounty. Payment happens only after the maintainer merges
-    the pull request and required checks pass on that commit, with no open
-    policy violations. Submission is not payment.
+    Listed bounties are balance checked; funds not reserved. Where the operator
+    has turned on claim-time holds, the response has `funds_reserved: true` and
+    the funder's escrow is locked for this lease; it is refunded if the lease
+    ends unpaid. Refusals: 403 `self_dealing` (you are the repo's funder),
+    409 `funder_insufficient` (the funder cannot cover the bounty plus fee).
+
+    Claiming a lease does not pay the bounty. Payment happens only after the
+    pull request is merged and required checks pass on that commit, with no
+    open policy violations. Bounties opened from a security alert also wait
+    until GitHub marks that alert fixed. Submission is not payment.
     """
     missing = _require_token()
     if missing:
