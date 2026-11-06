@@ -20,14 +20,68 @@ def _json_result(data: object) -> str:
 
 def _error_result(message: str) -> str:
     """Return JSON error object for tool responses."""
-    return _json_result({"error": message})
+    from .settlebridge_client import redact_secrets
+
+    return _json_result({"error": redact_secrets(message)})
+
+
+def _hosted_header_error() -> str | None:
+    """Malformed hosted Authorization, or None when the header is absent or valid."""
+    from .hosted import is_hosted, read_caller_key
+
+    if not is_hosted():
+        return None
+    _key, err = read_caller_key()
+    return err
 
 
 def _require_auth() -> str | None:
-    """Return error message if API key is missing, else None."""
+    """Return error message if API key is missing, else None.
+
+    Hosted mode uses the caller's bearer token and never the environment.
+    """
+    from .hosted import MISSING_BEARER, is_hosted, read_caller_key
+
+    if is_hosted():
+        key, err = read_caller_key()
+        if err:
+            return err
+        if not key:
+            return MISSING_BEARER
+        return None
     if not get_api_key():
         return "This operation requires A2A_API_KEY. Set it in the server environment."
     return None
+
+
+def _dashboard_api_key() -> str:
+    """Dashboard bearer. Hosted mode sends the caller's exchange API key."""
+    from .hosted import caller_exchange_key, is_hosted
+
+    if is_hosted():
+        return caller_exchange_key()
+    return get_dashboard_api_key()
+
+
+def _shim_api_key() -> tuple[str, str | None]:
+    """``(key, error)``. Hosted mode does not read shim or exchange env keys."""
+    from .hosted import is_hosted, read_caller_key
+
+    if is_hosted():
+        return read_caller_key()
+    return get_shim_api_key(), None
+
+
+def _exchange_bearer() -> tuple[str, str | None]:
+    """``(key, error)`` for optional exchange auth. Empty key means no header."""
+    from .hosted import is_hosted, read_caller_key
+
+    if is_hosted():
+        key, err = read_caller_key()
+        if err:
+            return "", err
+        return key, None
+    return get_api_key(), None
 
 
 def _get_configured_account_id() -> str | None:
@@ -60,6 +114,9 @@ def settlement_register_agent(
     Creates a new account and returns an API key (store securely). The exchange
     assigns an account_id; use the returned api_key for subsequent authenticated operations.
     """
+    err = _hosted_header_error()
+    if err:
+        return _error_result(err)
     try:
         client = get_exchange_client(api_key="")
         result = client.register_account(
@@ -78,7 +135,7 @@ def settlement_register_agent(
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -112,7 +169,7 @@ def settlement_fund_agent(agent_id: str, amount: int) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -145,7 +202,7 @@ def settlement_check_balance(agent_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -158,6 +215,9 @@ def settlement_list_agents(skill: str | None = None, limit: int = 50) -> str:
 
     Optionally filter by skill tag. Returns agent IDs, balances, reputation scores.
     """
+    err = _hosted_header_error()
+    if err:
+        return _error_result(err)
     try:
         client = get_exchange_client(api_key="")
         result = client.directory(skill=skill, limit=limit)
@@ -169,7 +229,7 @@ def settlement_list_agents(skill: str | None = None, limit: int = 50) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -226,7 +286,7 @@ def settlement_create_escrow(
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -291,7 +351,7 @@ def settlement_deliver(
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -318,7 +378,7 @@ def settlement_get_escrow(escrow_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -345,7 +405,7 @@ def settlement_release_escrow(escrow_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -372,7 +432,7 @@ def settlement_refund_escrow(escrow_id: str, reason: str | None = None) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -411,7 +471,7 @@ def settlement_file_dispute(escrow_id: str, reason: str, stake_amount: int = 10)
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -491,7 +551,7 @@ def settlement_submit_evidence(
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -504,6 +564,9 @@ def settlement_check_reputation(agent_id: str) -> str:
 
     Returns reputation (0.0-1.0) and account details. No authentication required.
     """
+    err = _hosted_header_error()
+    if err:
+        return _error_result(err)
     try:
         client = get_exchange_client(api_key="")
         result = client.get_account(account_id=agent_id)
@@ -518,7 +581,7 @@ def settlement_check_reputation(agent_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -542,10 +605,9 @@ def settlement_suspend_agent(agent_id: str) -> str:
     if err:
         return _error_result(err)
     try:
-        client = get_exchange_client()
         url = f"{get_exchange_url()}/api/v1/dashboard/agents/{agent_id}/suspend"
         import httpx as _httpx
-        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_dashboard_api_key()}"}, timeout=10.0)
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {_dashboard_api_key()}"}, timeout=10.0)
         resp.raise_for_status()
         return _json_result(resp.json())
     except Exception as e:
@@ -564,7 +626,7 @@ def settlement_unsuspend_agent(agent_id: str) -> str:
     try:
         url = f"{get_exchange_url()}/api/v1/dashboard/agents/{agent_id}/unsuspend"
         import httpx as _httpx
-        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_dashboard_api_key()}"}, timeout=10.0)
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {_dashboard_api_key()}"}, timeout=10.0)
         resp.raise_for_status()
         return _json_result(resp.json())
     except Exception as e:
@@ -584,7 +646,7 @@ def settlement_force_refund(escrow_id: str) -> str:
     try:
         url = f"{get_exchange_url()}/api/v1/dashboard/escrows/{escrow_id}/force-refund"
         import httpx as _httpx
-        resp = _httpx.post(url, headers={"Authorization": f"Bearer {get_dashboard_api_key()}"}, timeout=10.0)
+        resp = _httpx.post(url, headers={"Authorization": f"Bearer {_dashboard_api_key()}"}, timeout=10.0)
         resp.raise_for_status()
         return _json_result(resp.json())
     except Exception as e:
@@ -666,7 +728,7 @@ def settlement_get_history(agent_id: str, limit: int = 50, offset: int = 0) -> s
         except Exception:
             msg = str(e)
         return _error_result(msg)
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         return _error_result(
             f"Exchange connection failed: {get_exchange_url()} is not responding. "
             "Ensure the exchange is running."
@@ -690,7 +752,9 @@ def _shim_request(method: str, path: str, body: dict | None = None) -> dict:
     """Make a request to the Security Shim."""
     url = f"{get_shim_url()}{path}"
     headers = {}
-    api_key = get_shim_api_key()
+    api_key, auth_err = _shim_api_key()
+    if auth_err:
+        raise ValueError(auth_err)
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     resp = httpx.request(method, url, json=body, headers=headers, timeout=30.0)
@@ -740,7 +804,9 @@ def settlement_proxy_request(
         except Exception:
             msg = str(e)
         return _error_result(f"Shim proxy request failed: {msg}")
-    except httpx.RequestError as e:
+    except ValueError as e:
+        return _error_result(str(e))
+    except httpx.RequestError:
         return _error_result(
             f"Shim connection failed: {get_shim_url()} is not responding. "
             "Ensure the Security Shim is running."
@@ -787,6 +853,8 @@ def settlement_register_tool(
         except Exception:
             msg = str(e)
         return _error_result(f"Failed to register tool: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Shim connection failed: {e}")
 
@@ -825,6 +893,8 @@ def settlement_register_secret(
         except Exception:
             msg = str(e)
         return _error_result(f"Failed to register secret: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Shim connection failed: {e}")
 
@@ -848,6 +918,8 @@ def settlement_shim_escrow_status(escrow_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(f"Shim escrow check failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Shim connection failed: {e}")
 
@@ -870,6 +942,8 @@ def settlement_shim_audit(limit: int = 50) -> str:
         except Exception:
             msg = str(e)
         return _error_result(f"Shim audit request failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Shim connection failed: {e}")
 
@@ -881,11 +955,12 @@ def settlement_shim_audit(limit: int = 50) -> str:
 
 def _attestation_request(method: str, path: str, json_body: dict | None = None) -> dict:
     """Make a direct HTTP request to the exchange attestation endpoints."""
-    from a2a_settlement_mcp.config import get_exchange_url, get_api_key
-
     base = get_exchange_url().rstrip("/")
     url = f"{base}/v1{path}"
-    headers = {"Authorization": f"Bearer {get_api_key()}"} if get_api_key() else {}
+    key, err = _exchange_bearer()
+    if err:
+        raise ValueError(err)
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
     resp = httpx.request(method, url, json=json_body, headers=headers, timeout=15.0)
     resp.raise_for_status()
     return resp.json()
@@ -907,6 +982,8 @@ def settlement_check_attestation_status(attestation_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(f"Attestation status check failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Exchange connection failed: {e}")
 
@@ -936,6 +1013,8 @@ def settlement_revoke_attestation(
         except Exception:
             msg = str(e)
         return _error_result(f"Attestation revocation failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Exchange connection failed: {e}")
 
@@ -956,6 +1035,8 @@ def settlement_renew_attestation(attestation_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(f"Attestation renewal failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Exchange connection failed: {e}")
 
@@ -968,7 +1049,10 @@ def settlement_renew_attestation(attestation_id: str) -> str:
 def _exchange_get(path: str) -> dict:
     """Simple authenticated GET to the exchange."""
     base = get_exchange_url().rstrip("/")
-    headers = {"Authorization": f"Bearer {get_api_key()}"} if get_api_key() else {}
+    key, err = _exchange_bearer()
+    if err:
+        raise ValueError(err)
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
     resp = httpx.get(f"{base}/v1{path}", headers=headers, timeout=15.0)
     resp.raise_for_status()
     return resp.json()
@@ -997,6 +1081,8 @@ def settlement_get_principal(agent_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(f"Principal lookup failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Exchange connection failed: {e}")
 
@@ -1028,6 +1114,8 @@ def settlement_get_counterparty_diversity(agent_id: str) -> str:
         except Exception:
             msg = str(e)
         return _error_result(f"Diversity lookup failed: {msg}")
+    except ValueError as e:
+        return _error_result(str(e))
     except httpx.RequestError as e:
         return _error_result(f"Exchange connection failed: {e}")
 
@@ -1061,7 +1149,9 @@ def settlement_get_compliance_feed(
         return _error_result(f"Unknown feed '{feed}'. Use one of: {sorted(allowed_feeds)}")
 
     shim_url = get_shim_url()
-    shim_key = get_shim_api_key()
+    shim_key, auth_err = _shim_api_key()
+    if auth_err:
+        return _error_result(auth_err)
 
     if not shim_url:
         return _error_result(

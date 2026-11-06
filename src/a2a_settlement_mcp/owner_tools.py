@@ -58,6 +58,16 @@ _CONFIRM = (
 
 
 def _client() -> SettleBridgeClient:
+    from .hosted import MISSING_BEARER, is_hosted, owner_session_for_key, read_caller_key
+
+    if is_hosted():
+        key, err = read_caller_key()
+        if err:
+            raise OwnerSessionError(err)
+        if not key:
+            raise OwnerSessionError(MISSING_BEARER)
+        session = owner_session_for_key(key)
+        return SettleBridgeClient(get_settlebridge_url(), token_provider=session)
     session = get_owner_session()
     if session is None:
         raise OwnerSessionError(_KEY_REQUIRED)

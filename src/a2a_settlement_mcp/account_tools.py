@@ -1,9 +1,9 @@
 """Read-only SettleBridge account tools.
 
-These call SettleBridge with the caller's own exchange API key:
+Locally these call SettleBridge with the caller's own exchange API key:
 ``SETTLEBRIDGE_API_KEY`` when it is set, otherwise
-``SETTLEBRIDGE_GATEWAY_CLIENT_SECRET``. The hosted MCP server sets neither,
-so the tools do nothing there.
+``SETTLEBRIDGE_GATEWAY_CLIENT_SECRET``. On the hosted server they use the
+exchange API key from ``Authorization: Bearer``.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import httpx
 
 from .config import get_settlebridge_url
 from .server import _error_result, _json_result, mcp
+from .settlebridge_client import remember_secret
 
 _KEY_REQUIRED = (
     "Set SETTLEBRIDGE_API_KEY or SETTLEBRIDGE_GATEWAY_CLIENT_SECRET to your own "
@@ -24,21 +25,34 @@ _KEY_REQUIRED = (
 _TIMEOUT_S = 30.0
 
 
-def _exchange_api_key() -> str:
-    """Caller's exchange API key. Empty when this process has neither accepted var.
+def _exchange_api_key() -> tuple[str, str | None]:
+    """``(key, error)``. Hosted mode never reads environment credentials.
 
-    No other environment variable is read as a key.
+    Locally, no environment variable other than the two accepted ones is a key.
     """
+    from .hosted import MISSING_BEARER, is_hosted, read_caller_key
+
+    if is_hosted():
+        key, err = read_caller_key()
+        if err:
+            return "", err
+        if not key:
+            return "", MISSING_BEARER
+        return key, None
     api_key = os.environ.get("SETTLEBRIDGE_API_KEY", "").strip()
     if api_key:
-        return api_key
-    return os.environ.get("SETTLEBRIDGE_GATEWAY_CLIENT_SECRET", "").strip()
+        return api_key, None
+    secret = os.environ.get("SETTLEBRIDGE_GATEWAY_CLIENT_SECRET", "").strip()
+    if secret:
+        return secret, None
+    return "", _KEY_REQUIRED
 
 
 def _get(path: str, *, csv: bool = False) -> str:
-    key = _exchange_api_key()
-    if not key:
-        return _error_result(_KEY_REQUIRED)
+    key, err = _exchange_api_key()
+    if err or not key:
+        return _error_result(err or _KEY_REQUIRED)
+    remember_secret(key)
     try:
         response = httpx.get(
             f"{get_settlebridge_url()}{path}",
@@ -61,8 +75,8 @@ def get_my_ledger(csv: bool = False) -> str:
     """Read this account's SettleBridge wallet ledger. Read-only.
 
     Uses the caller's own exchange API key (``SETTLEBRIDGE_API_KEY``, or
-    ``SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`` when the API key is unset). The
-    hosted MCP server has no key, so this does nothing there.
+    ``SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`` when the API key is unset).
+    On the hosted server, send that key as ``Authorization: Bearer``.
 
     Reports wallet totals: available, held, committed to open bounties, and
     free to fund. Includes one row per bounty with that bounty's amount and
@@ -81,7 +95,7 @@ def get_solver_setup_status() -> str:
 
     Uses the caller's own exchange API key (``SETTLEBRIDGE_API_KEY``, or
     ``SETTLEBRIDGE_GATEWAY_CLIENT_SECRET`` when the API key is unset).
-    Read-only. The hosted MCP server has no key, so this does nothing there.
+    Read-only. On the hosted server, send that key as ``Authorization: Bearer``.
 
     Reports the remaining setup steps, reputation, financial scope, eligible
     bounties, and an MCP config snippet whose secret is a placeholder.

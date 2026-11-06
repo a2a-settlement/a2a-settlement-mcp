@@ -13,8 +13,10 @@ of that server would act as the key's owner.
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
+from collections import OrderedDict
 from typing import Callable
 
 import httpx
@@ -100,6 +102,34 @@ class OwnerSessionProvider:
 
 _provider_lock = threading.Lock()
 _provider: OwnerSessionProvider | None = None
+_sessions_lock = threading.Lock()
+_sessions: OrderedDict[str, OwnerSessionProvider] = OrderedDict()
+_SESSION_CACHE_MAX = 1000
+
+
+def _session_cache_id(base_url: str, api_key: str) -> str:
+    """Cache id for one owner key. The raw key is not the key."""
+    return hashlib.sha256(f"{base_url}\0{api_key}".encode()).hexdigest()
+
+
+def session_for_api_key(base_url: str, api_key: str) -> OwnerSessionProvider:
+    """Thread-safe LRU of SettleBridge sessions, keyed by sha256 of the API key."""
+    cache_id = _session_cache_id(base_url, api_key)
+    with _sessions_lock:
+        existing = _sessions.get(cache_id)
+        if existing is not None:
+            _sessions.move_to_end(cache_id)
+            return existing
+    created = OwnerSessionProvider(base_url, api_key)
+    with _sessions_lock:
+        existing = _sessions.get(cache_id)
+        if existing is not None:
+            _sessions.move_to_end(cache_id)
+            return existing
+        _sessions[cache_id] = created
+        while len(_sessions) > _SESSION_CACHE_MAX:
+            _sessions.popitem(last=False)
+        return created
 
 
 def get_owner_session() -> OwnerSessionProvider | None:
@@ -116,7 +146,9 @@ def get_owner_session() -> OwnerSessionProvider | None:
 
 
 def reset_owner_session() -> None:
-    """Forget the cached session. Used by tests."""
+    """Forget cached sessions. Used by tests."""
     global _provider
     with _provider_lock:
         _provider = None
+    with _sessions_lock:
+        _sessions.clear()

@@ -11,6 +11,7 @@ not write to stdout: that stream is the stdio MCP transport.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections.abc import Callable
@@ -68,6 +69,8 @@ _MODES = {"idle": "AVAILABLE_IDLE", "busy": "BUSY_PREEMPTED"}
 _state_lock = threading.Lock()
 _thread_lock = threading.Lock()
 _leases: dict[str, dict[str, str]] = {}
+# Hosted callers do not share in-process lease tokens. Keyed by sha256(api key).
+_leases_by_caller: dict[str, dict[str, dict[str, str]]] = {}
 _worker: dict[str, Any] = {
     "status": "AVAILABLE_IDLE",
     "min_bounty_usd": None,
@@ -79,6 +82,18 @@ _thread: threading.Thread | None = None
 
 
 def _new_client() -> SettleBridgeClient:
+    from .hosted import gateway_provider_for_key, is_hosted, read_caller_key
+
+    if is_hosted():
+        key, err = read_caller_key()
+        if err:
+            raise GatewayTokenError(err)
+        if not key:
+            return SettleBridgeClient(get_settlebridge_url())
+        return SettleBridgeClient(
+            get_settlebridge_url(),
+            token_provider=gateway_provider_for_key(key),
+        )
     provider = get_provider()
     if provider is not None:
         return SettleBridgeClient(get_settlebridge_url(), token_provider=provider)
@@ -89,6 +104,15 @@ def _new_client() -> SettleBridgeClient:
 
 
 def _require_token() -> str | None:
+    from .hosted import MISSING_BEARER, is_hosted, read_caller_key
+
+    if is_hosted():
+        key, err = read_caller_key()
+        if err:
+            return _error_result(err)
+        if not key:
+            return _error_result(MISSING_BEARER)
+        return None
     if not settlebridge_gateway_configured():
         return _error_result(_TOKEN_REQUIRED)
     return None
@@ -125,6 +149,12 @@ def _connection_error() -> str:
 
 
 def _run(action: Callable[[], Any]) -> str:
+    from .hosted import is_hosted, read_caller_key
+
+    if is_hosted():
+        _key, err = read_caller_key()
+        if err:
+            return _error_result(err)
     _ensure_heartbeat()
     try:
         return _json_result(action())
@@ -153,13 +183,34 @@ def _remember_lease(payload: dict[str, Any], requested_bounty_id: str) -> None:
     except ValueError:
         bounty_key = str(bounty_raw)
     remember_secret(token)
+    record = {"lease_token": token, "bounty_id": bounty_key}
+    scope = _caller_scope()
     with _state_lock:
-        _leases[lease_key] = {"lease_token": token, "bounty_id": bounty_key}
+        if scope is None:
+            _leases[lease_key] = record
+        else:
+            _leases_by_caller.setdefault(scope, {})[lease_key] = record
+
+
+def _caller_scope() -> str | None:
+    """None keeps the process-wide lease map. A digest isolates hosted callers."""
+    from .hosted import is_hosted, read_caller_key
+
+    if not is_hosted():
+        return None
+    key, _err = read_caller_key()
+    if not key:
+        return ""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def _forget_lease(lease_id: str) -> None:
+    scope = _caller_scope()
     with _state_lock:
-        _leases.pop(lease_id, None)
+        if scope is None:
+            _leases.pop(lease_id, None)
+        else:
+            _leases_by_caller.get(scope, {}).pop(lease_id, None)
 
 
 def _resolve_token(lease_id: str, explicit: str) -> str:
@@ -167,8 +218,12 @@ def _resolve_token(lease_id: str, explicit: str) -> str:
     if token:
         remember_secret(token)
         return token
+    scope = _caller_scope()
     with _state_lock:
-        record = _leases.get(lease_id)
+        if scope is None:
+            record = _leases.get(lease_id)
+        else:
+            record = _leases_by_caller.get(scope, {}).get(lease_id)
     if not record:
         raise ValueError(_LEASE_TOKEN_REQUIRED)
     return record["lease_token"]
@@ -182,10 +237,15 @@ def _resolve_submit_lease(
     if lease_id.strip():
         lease_key = parse_uuid(lease_id, field="lease_id")
         return lease_key, _resolve_token(lease_key, lease_token)
+    scope = _caller_scope()
     with _state_lock:
+        if scope is None:
+            items = list(_leases.items())
+        else:
+            items = list(_leases_by_caller.get(scope, {}).items())
         matches = [
             stored_id
-            for stored_id, record in _leases.items()
+            for stored_id, record in items
             if record.get("bounty_id") == bounty_id
         ]
     if not matches:
@@ -221,6 +281,11 @@ def _claim_guidance(payload: dict[str, Any]) -> str:
 
 
 def _heartbeat_configured() -> bool:
+    from .hosted import is_hosted
+
+    # A hosted process has no single caller to heartbeat for.
+    if is_hosted():
+        return False
     return get_settlebridge_heartbeat() and settlebridge_gateway_configured()
 
 
@@ -323,6 +388,7 @@ def reset_local_state() -> None:
     reset_provider()
     with _state_lock:
         _leases.clear()
+        _leases_by_caller.clear()
         _worker["status"] = "AVAILABLE_IDLE"
         _worker["min_bounty_usd"] = None
         _worker["max_tokens"] = None
