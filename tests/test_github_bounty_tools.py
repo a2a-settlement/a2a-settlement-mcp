@@ -371,10 +371,44 @@ def test_status_is_public_without_a_token() -> None:
         "lease": None,
     }
     with respx.mock:
-        respx.get(f"{BASE}/api/v1/github/bounties/{BOUNTY_ID}/status").mock(
+        route = respx.get(f"{BASE}/api/v1/github/bounties/{BOUNTY_ID}/status").mock(
             return_value=httpx.Response(200, json=payload)
         )
         assert _load(get_github_bounty_status(BOUNTY_ID)) == payload
+        assert "authorization" not in {key.lower() for key in route.calls[0].request.headers}
+
+
+def test_list_and_status_send_gateway_token_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """List and status send the configured gateway token, and omit it when none is set."""
+    monkeypatch.setenv("SETTLEBRIDGE_GATEWAY_TOKEN", GATEWAY)
+    listed = {"bounties": [_bounty(BOUNTY_ID, 5)]}
+    status_body = {"bounty_id": BOUNTY_ID, "state": "open"}
+    with respx.mock:
+        list_route = respx.get(f"{BASE}/api/v1/github/bounties").mock(
+            return_value=httpx.Response(200, json=listed)
+        )
+        status_route = respx.get(f"{BASE}/api/v1/github/bounties/{BOUNTY_ID}/status").mock(
+            return_value=httpx.Response(200, json=status_body)
+        )
+        assert _load(list_open_github_bounties())["bounties"][0]["bounty_id"] == BOUNTY_ID
+        assert _load(get_github_bounty_status(BOUNTY_ID)) == status_body
+        assert list_route.calls[0].request.headers["Authorization"] == f"Bearer {GATEWAY}"
+        assert status_route.calls[0].request.headers["Authorization"] == f"Bearer {GATEWAY}"
+
+    monkeypatch.delenv("SETTLEBRIDGE_GATEWAY_TOKEN", raising=False)
+    with respx.mock:
+        list_route = respx.get(f"{BASE}/api/v1/github/bounties").mock(
+            return_value=httpx.Response(200, json=listed)
+        )
+        status_route = respx.get(f"{BASE}/api/v1/github/bounties/{BOUNTY_ID}/status").mock(
+            return_value=httpx.Response(200, json=status_body)
+        )
+        _load(list_open_github_bounties())
+        _load(get_github_bounty_status(BOUNTY_ID))
+        assert "authorization" not in {key.lower() for key in list_route.calls[0].request.headers}
+        assert "authorization" not in {key.lower() for key in status_route.calls[0].request.headers}
 
 
 @pytest.mark.parametrize(

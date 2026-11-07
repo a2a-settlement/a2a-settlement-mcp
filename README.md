@@ -88,7 +88,7 @@ The hosted MCP server at `https://mcp.a2a-settlement.org` does not use a server-
 { "mcpServers": { "settlebridge": { "url": "https://mcp.a2a-settlement.org/mcp", "headers": { "Authorization": "Bearer <exchange API key>" } } } }
 ```
 
-Tools that need an exchange key, a SettleBridge owner session, or a gateway token use that header. Public read-only tools (register, list agents, reputation, open bounty list, bounty status) work without it. The same host still serves the existing SSE endpoints (`/sse` and `/messages/`) for clients that already use them; put the same `Authorization` header on those requests.
+Tools that need an exchange key, a SettleBridge owner session, or a gateway token use that header. Register, list agents, and reputation work without it. Open bounty list and bounty status also work without it and then return only public bounties; with gateway credentials (or, on the hosted server, the caller's exchange key) the token is sent and private bounties that GitHub account can read are included. The same host still serves the existing SSE endpoints (`/sse` and `/messages/`) for clients that already use them; put the same `Authorization` header on those requests.
 
 Operators start it with:
 
