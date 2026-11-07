@@ -21,6 +21,7 @@ from .settlebridge_client import (
     SettleBridgeError,
     parse_repo,
     redact_secrets,
+    _onboard_flags,
 )
 
 _KEY_REQUIRED = (
@@ -154,6 +155,9 @@ def setup_github_repo(
     check: str = "",
     allowed_paths: list[str] | None = None,
     apply: bool = False,
+    auto_dispatch_alerts: bool | None = None,
+    auto_merge_acceptable: bool | None = None,
+    strict_tests: bool | None = None,
 ) -> str:
     """Set up a GitHub repo for SettleBridge bounties in one call, as its owner and funder.
 
@@ -162,6 +166,13 @@ def setup_github_repo(
     with links and changes nothing. Otherwise runs onboarding as a dry run, or for
     real with ``apply=True``: that saves the required check and allowed paths,
     enables bounties, and creates the ``bounty:`` and ``tier:`` labels.
+
+    ``auto_dispatch_alerts`` turns supported security alerts into bounty issues.
+    ``auto_merge_acceptable`` allows bounded auto-merge of acceptable Dependabot
+    fixes. ``strict_tests`` requires the configured test protection. Each is
+    optional: true turns it on, false turns it off, and omitting it leaves the
+    current setting unchanged. Alert dispatch and auto-merge still depend on the
+    matching server-wide setting.
 
     Always call without ``apply`` first and show the user the result. Pass
     ``apply=True`` only after the user confirms. Enabling bounties does not move
@@ -176,11 +187,22 @@ def setup_github_repo(
         allowed_paths: Globs a solver may change, such as ``["src/*", "tests/*"]``.
             Defaults to what SettleBridge detects. Nothing under ``.github/``.
         apply: False for a dry run (default); True to enable bounties.
+        auto_dispatch_alerts: Turn supported security alerts into bounty issues.
+            Omit to leave the current setting.
+        auto_merge_acceptable: Allow bounded auto-merge of acceptable Dependabot
+            fixes. Omit to leave the current setting.
+        strict_tests: Require the configured test protection. Omit to leave the
+            current setting.
     """
 
     def action() -> Any:
         name = parse_repo(repo)
         chosen = _parse_check(check) if check.strip() else None
+        _onboard_flags(
+            auto_dispatch_alerts=auto_dispatch_alerts,
+            auto_merge_acceptable=auto_merge_acceptable,
+            strict_tests=strict_tests,
+        )
         paths = [p.strip() for p in allowed_paths if p.strip()] if allowed_paths else None
         client = _client()
         status = client.repo_setup_status(name)
@@ -208,7 +230,13 @@ def setup_github_repo(
         detected = status.get("detected") if isinstance(status.get("detected"), dict) else {}
         checks = [chosen] if chosen is not None else list(detected.get("required_checks") or [])
         result = client.onboard_repo(
-            name, checks=checks, allowed_paths=paths, dry_run=not apply
+            name,
+            checks=checks,
+            allowed_paths=paths,
+            dry_run=not apply,
+            auto_dispatch_alerts=auto_dispatch_alerts,
+            auto_merge_acceptable=auto_merge_acceptable,
+            strict_tests=strict_tests,
         )
         if not isinstance(result, dict):
             raise SettleBridgeError(502, result)

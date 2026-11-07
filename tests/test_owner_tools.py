@@ -25,6 +25,7 @@ LOGIN = f"{BASE}/api/auth/exchange-login"
 STATUS = f"{BASE}/api/v1/github/repos/acme/widget/setup-status"
 ONBOARD = f"{BASE}/api/v1/github/repos/acme/widget/onboard"
 CHECK = {"name": "test", "app_id": 15368}
+_ONBOARD_FLAGS = ("auto_dispatch_alerts", "auto_merge_acceptable", "strict_tests")
 
 
 @pytest.fixture(autouse=True)
@@ -233,6 +234,35 @@ def test_setup_ignores_non_blocking_steps() -> None:
 def test_setup_rejects_a_malformed_check(check: str) -> None:
     data = json.loads(setup_github_repo("acme/widget", check=check))
     assert "NAME:APP_ID" in data["error"]
+
+
+def test_setup_omits_unset_onboarding_flags() -> None:
+    with respx.mock() as router:
+        _login(router)
+        router.get(STATUS).mock(return_value=httpx.Response(200, json=_status()))
+        onboard = router.post(ONBOARD).mock(return_value=_onboarded())
+        json.loads(setup_github_repo("acme/widget"))
+    body = json.loads(onboard.calls[0].request.content)
+    assert body == {"checks": [CHECK], "dry_run": True}
+
+
+@pytest.mark.parametrize("flag", _ONBOARD_FLAGS)
+@pytest.mark.parametrize("value", [True, False])
+def test_setup_passes_onboarding_flags(flag: str, value: bool) -> None:
+    with respx.mock() as router:
+        _login(router)
+        router.get(STATUS).mock(return_value=httpx.Response(200, json=_status()))
+        onboard = router.post(ONBOARD).mock(return_value=_onboarded())
+        json.loads(setup_github_repo("acme/widget", **{flag: value}))
+    body = json.loads(onboard.calls[0].request.content)
+    assert body == {"checks": [CHECK], "dry_run": True, flag: value}
+
+
+@pytest.mark.parametrize("flag", _ONBOARD_FLAGS)
+@pytest.mark.parametrize("value", [0, 1, "true", "false"])
+def test_setup_rejects_non_bool_onboarding_flags(flag: str, value: object) -> None:
+    data = json.loads(setup_github_repo("acme/widget", **{flag: value}))
+    assert data["error"] == f"{flag} must be true or false"
 
 
 def test_coded_errors_pass_through_allowlisted_details() -> None:

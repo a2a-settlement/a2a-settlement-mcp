@@ -24,6 +24,9 @@ from a2a_settlement_mcp.settlebridge_client import (
 )
 
 BASE = "https://market.settlebridge.ai"
+ONBOARD = f"{BASE}/api/v1/github/repos/acme/widget/onboard"
+_CHECKS = [{"name": "test", "app_id": 15368}]
+_ONBOARD_FLAGS = ("auto_dispatch_alerts", "auto_merge_acceptable", "strict_tests")
 GATEWAY = "gateway-token-SUPERSECRET"
 LEASE = "lease-token-SUPERSECRET"
 BOUNTY_ID = "11111111-1111-4111-8111-111111111111"
@@ -259,6 +262,37 @@ def test_client_timeout_is_30_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx, "Client", _FakeClient)
     _client().list_bounties()
     assert seen["timeout"] == 30
+
+
+def test_onboard_repo_omits_unset_flags() -> None:
+    """Omitted onboarding flags stay out of the body, matching the previous request."""
+    with respx.mock:
+        route = respx.post(ONBOARD).mock(return_value=httpx.Response(200, json={"changed": False}))
+        result = _client().onboard_repo("acme/widget", checks=_CHECKS)
+        body = json.loads(route.calls[0].request.content)
+    assert body == {"checks": _CHECKS, "dry_run": True}
+    assert result == {"changed": False}
+
+
+@pytest.mark.parametrize("flag", _ONBOARD_FLAGS)
+@pytest.mark.parametrize("value", [True, False])
+def test_onboard_repo_passes_bool_flags(flag: str, value: bool) -> None:
+    """Each onboarding flag is sent as given, including false."""
+    with respx.mock:
+        route = respx.post(ONBOARD).mock(return_value=httpx.Response(200, json={"changed": True}))
+        _client().onboard_repo("acme/widget", checks=_CHECKS, dry_run=False, **{flag: value})
+        body = json.loads(route.calls[0].request.content)
+    assert body == {"checks": _CHECKS, "dry_run": False, flag: value}
+
+
+@pytest.mark.parametrize("flag", _ONBOARD_FLAGS)
+@pytest.mark.parametrize("value", [0, 1, "true", "false"])
+def test_onboard_repo_rejects_non_bool_flags(flag: str, value: object) -> None:
+    """A non-bool flag is rejected before any request is sent."""
+    with respx.mock(assert_all_called=False) as router:
+        with pytest.raises(ValueError, match=f"{flag} must be true or false"):
+            _client().onboard_repo("acme/widget", checks=_CHECKS, **{flag: value})
+        assert router.calls.call_count == 0
 
 
 def test_tokens_are_redacted_from_log_records(caplog: pytest.LogCaptureFixture) -> None:
