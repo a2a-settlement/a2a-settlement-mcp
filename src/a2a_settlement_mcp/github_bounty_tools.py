@@ -409,6 +409,10 @@ def list_open_github_bounties(
 
     Results are filtered in this process by SETTLEBRIDGE_MIN_BOUNTY_USD.
 
+    With gateway credentials (or, on the hosted server, the caller's exchange
+    key) the token is sent and private bounties that GitHub account can read
+    are included; without credentials only public bounties are returned.
+
     Args:
         language: Optional language filter forwarded to SettleBridge.
         max_difficulty: Accepted for forward compatibility. Not yet supported
@@ -563,7 +567,11 @@ def submit_github_patch(
 
 @mcp.tool()
 def get_github_bounty_status(bounty_id: str) -> str:
-    """Fetch public status for a GitHub bounty.
+    """Fetch status for a GitHub bounty.
+
+    With gateway credentials (or, on the hosted server, the caller's exchange
+    key) the token is sent and private bounties that GitHub account can read
+    are included; without credentials only public bounties are returned.
 
     Returns bounty state, the bound pull request, assessment, and settlement
     when SettleBridge has them. A submitted pull request is not payment.
