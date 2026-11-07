@@ -84,6 +84,18 @@ def parse_repo(value: str) -> str:
     return text
 
 
+def _onboard_flags(**flags: Any) -> dict[str, bool]:
+    """Onboard body fields. ``None`` is omitted; anything else must be a bool."""
+    body: dict[str, bool] = {}
+    for name, value in flags.items():
+        if value is None:
+            continue
+        if not isinstance(value, bool):
+            raise ValueError(f"{name} must be true or false")
+        body[name] = value
+    return body
+
+
 def _secrets_snapshot() -> tuple[str, ...]:
     found: list[str] = []
     for name in (
@@ -287,11 +299,25 @@ class SettleBridgeClient:
         checks: list[dict[str, Any]],
         allowed_paths: list[str] | None = None,
         dry_run: bool = True,
+        auto_dispatch_alerts: bool | None = None,
+        auto_merge_acceptable: bool | None = None,
+        strict_tests: bool | None = None,
     ) -> Any:
-        """POST /api/v1/github/repos/{owner}/{name}/onboard. Needs an owner session."""
+        """POST /api/v1/github/repos/{owner}/{name}/onboard. Needs an owner session.
+
+        ``auto_dispatch_alerts``, ``auto_merge_acceptable`` and ``strict_tests``
+        are included only when not None. Omitted, each stays as it is.
+        """
         body: dict[str, Any] = {"checks": checks, "dry_run": dry_run}
         if allowed_paths is not None:
             body["allowed_paths"] = allowed_paths
+        body.update(
+            _onboard_flags(
+                auto_dispatch_alerts=auto_dispatch_alerts,
+                auto_merge_acceptable=auto_merge_acceptable,
+                strict_tests=strict_tests,
+            )
+        )
         return self._request(
             "POST", f"/api/v1/github/repos/{parse_repo(repo)}/onboard", json_body=body
         )
