@@ -20,6 +20,7 @@ from a2a_settlement_mcp.server import (
     settlement_register_agent,
     settlement_release_escrow,
     settlement_resolve_dispute,
+    settlement_submit_evidence,
     settlement_suspend_agent,
     settlement_unsuspend_agent,
 )
@@ -181,6 +182,83 @@ def test_settlement_file_dispute_success() -> None:
             mock_client.dispute_escrow.assert_called_once_with(
                 escrow_id="e1", reason="Incomplete delivery", stake_amount=10
             )
+
+
+def test_settlement_submit_evidence_success() -> None:
+    """settlement_submit_evidence submits in the clear, without encryption fields."""
+    mock_result = {"evidence_id": "ev1", "escrow_id": "e1"}
+    with patch("a2a_settlement_mcp.server.get_api_key", return_value="ate_key"):
+        with patch("a2a_settlement_mcp.server.get_exchange_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.submit_evidence.return_value = mock_result
+            mock_factory.return_value = mock_client
+
+            result = settlement_submit_evidence(
+                escrow_id="e1",
+                evidence_type="content",
+                summary="Delivered report",
+                artifact_type="inline",
+                artifact_content="report body",
+                artifact_hash="abc123",
+            )
+            data = _parse_result(result)
+            assert "error" not in data
+            assert data["evidence_id"] == "ev1"
+            mock_client.submit_evidence.assert_called_once_with(
+                escrow_id="e1",
+                evidence_type="content",
+                summary="Delivered report",
+                artifacts=[
+                    {
+                        "artifact_type": "inline",
+                        "content_hash": "abc123",
+                        "content": "report body",
+                    }
+                ],
+                attestor_id=None,
+                attestor_signature=None,
+            )
+
+
+def test_settlement_submit_evidence_rejects_encrypted() -> None:
+    """encrypted=True returns an actionable error and never reaches the exchange."""
+    with patch("a2a_settlement_mcp.server.get_api_key", return_value="ate_key"):
+        with patch("a2a_settlement_mcp.server.get_exchange_client") as mock_factory:
+            result = settlement_submit_evidence(
+                escrow_id="e1",
+                evidence_type="content",
+                summary="Delivered report",
+                encrypted=True,
+            )
+            data = _parse_result(result)
+            assert "not supported" in data["error"]
+            assert "in the clear" in data["error"]
+            mock_factory.assert_not_called()
+
+
+def test_settlement_submit_evidence_rejects_encryption_key_id() -> None:
+    """An encryption_key_id alone is refused too: it implies ciphertext."""
+    with patch("a2a_settlement_mcp.server.get_api_key", return_value="ate_key"):
+        with patch("a2a_settlement_mcp.server.get_exchange_client") as mock_factory:
+            result = settlement_submit_evidence(
+                escrow_id="e1",
+                evidence_type="content",
+                summary="Delivered report",
+                encryption_key_id="key-1",
+            )
+            data = _parse_result(result)
+            assert "not supported" in data["error"]
+            mock_factory.assert_not_called()
+
+
+def test_settlement_submit_evidence_description_is_truthful() -> None:
+    """The advertised tool description must not claim evidence can be decrypted."""
+    tool = mcp._tool_manager._tools["settlement_submit_evidence"]
+    description = tool.description
+    assert "TEE" not in description
+    assert "can decrypt)" not in description
+    assert "not supported" in description
+    assert "in the clear" in description
 
 
 def test_settlement_register_agent_success() -> None:
