@@ -478,6 +478,14 @@ def settlement_file_dispute(escrow_id: str, reason: str, stake_amount: int = 10)
         )
 
 
+_ENCRYPTED_EVIDENCE_UNSUPPORTED = (
+    "Encrypted evidence is not supported: nothing in the settlement stack can "
+    "decrypt it, and the exchange rejects submissions with encrypted=true. "
+    "Nothing was submitted. Resubmit the evidence in the clear, with "
+    "encrypted=false and no encryption_key_id."
+)
+
+
 @mcp.tool()
 def settlement_submit_evidence(
     escrow_id: str,
@@ -499,6 +507,9 @@ def settlement_submit_evidence(
     Both requester and provider can submit evidence. If the respondent fails
     to submit, a default judgment is applied.
 
+    Evidence must be submitted in the clear: the mediator has to read it to
+    rule on the dispute, and encrypted evidence is not supported yet.
+
     Args:
         escrow_id: The disputed escrow to submit evidence for.
         evidence_type: Type of evidence: "compute", "content", "service",
@@ -509,11 +520,15 @@ def settlement_submit_evidence(
         artifact_uri: Content-addressed URI (IPFS CID, Arweave, etc., required if artifact_type="uri").
         artifact_hash: SHA-256 hash of the artifact content.
         artifact_mime_type: MIME type of the artifact.
-        encrypted: Whether the evidence is encrypted (only mediator TEE can decrypt).
-        encryption_key_id: Key ID for TEE-mediated decryption.
+        encrypted: Not supported. Leave as false. Nothing in the settlement
+            stack can decrypt evidence, so the exchange rejects encrypted
+            submissions; this tool returns an error without submitting.
+        encryption_key_id: Not supported. Leave unset (see ``encrypted``).
         attestor_id: Account ID of the third-party attestor.
         attestor_signature: Cryptographic signature from the attestor.
     """
+    if encrypted or encryption_key_id:
+        return _error_result(_ENCRYPTED_EVIDENCE_UNSUPPORTED)
     err = _require_auth()
     if err:
         return _error_result(err)
@@ -538,8 +553,6 @@ def settlement_submit_evidence(
             evidence_type=evidence_type,
             summary=summary,
             artifacts=artifacts or None,
-            encrypted=encrypted,
-            encryption_key_id=encryption_key_id,
             attestor_id=attestor_id,
             attestor_signature=attestor_signature,
         )
